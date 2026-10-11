@@ -1,0 +1,6 @@
+{
+  "name": "Noesis Lab",
+  "description": "Laboratório de realidade subjetiva e simulação consciente que modela conceitos, emoções e ideias como partículas em um campo perceptivo vivo, fundamentado em filosofia da mente, neurociência e física teórica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Noesis Lab</string>
+    <string name="app_subtitle">Ingeniero de Realidades Mentales y Simulación Consciente</string>
+    <string name="nav_field">Campo</string>
+    <string name="nav_architecture">Arquitectura</string>
+    <string name="nav_oracle">Simulación</string>
+    <string name="nav_providers">Proveedores IA</string>
+    <string name="hero_banner_desc">Ilustración de topología y variedad perceptiva</string>
+</resources>
