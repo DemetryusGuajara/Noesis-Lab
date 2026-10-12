@@ -1,9 +1,10 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,9 +19,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Science
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,8 +44,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.viewmodel.NoesisUiState
-import org.json.JSONArray
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NarrativeOracleScreen(
     uiState: NoesisUiState,
@@ -73,10 +73,10 @@ fun NarrativeOracleScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("narrative_oracle_screen")
     ) {
-        // Header Card
+        // Header Card + Clear Connection Banner (Explaining how Tab 1 + Tab 3 work together)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -90,40 +90,57 @@ fun NarrativeOracleScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "NARRATIVE BIOFEEDBACK & GROUNDING",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        text = strings.oracleHeaderTitle,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Icon(
                         imageVector = Icons.Default.Psychology,
                         contentDescription = strings.oracleHeaderTitle,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = strings.oracleHeaderTitle,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = strings.oracleHeaderSubtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
                 Spacer(modifier = Modifier.height(10.dp))
+
+                // Active Spheres Brought Over from Tab 1
+                Text(
+                    text = "${strings.activeParticlesTitle} (Aba 1):",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    uiState.particles.forEach { p ->
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(p.name, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 ) {
                     Text(
-                        text = "${strings.activeProviderChip} $activeEngineLabel",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = strings.oracleHowItConnectsBanner,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(10.dp)
                     )
                 }
             }
@@ -131,7 +148,7 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Real-Time Narrative Biofeedback Calibration Panel
+        // Body & Feeling Sliders with Clear Explanations
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -142,45 +159,48 @@ fun NarrativeOracleScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = strings.biofeedbackPanelTitle,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = strings.biofeedbackPanelTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = strings.biofeedbackPanelTitle,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = strings.biofeedbackImplicitLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        text = strings.biofeedbackPanelTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = strings.biofeedbackPanelSubtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = bioStateLabel,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Arousal Slider
+                // 1. Inner Pace Slider
                 Text(
                     text = "${strings.biofeedbackArousalLabel}: ${(prefs.bioArousal * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = strings.biofeedbackArousalHelp,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Slider(
                     value = prefs.bioArousal,
@@ -188,11 +208,18 @@ fun NarrativeOracleScreen(
                     valueRange = 0.05f..0.98f
                 )
 
-                // Valence Slider
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 2. Emotional Openness Slider
                 Text(
                     text = "${strings.biofeedbackValenceLabel}: ${(prefs.bioValence * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = strings.biofeedbackValenceHelp,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Slider(
                     value = prefs.bioValence,
@@ -200,11 +227,18 @@ fun NarrativeOracleScreen(
                     valueRange = 0.05f..0.98f
                 )
 
-                // Focus Depth Slider
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 3. Focus Depth Slider
                 Text(
                     text = "${strings.biofeedbackFocusDepthLabel}: ${(prefs.bioFocus * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = strings.biofeedbackFocusDepthHelp,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Slider(
                     value = prefs.bioFocus,
@@ -216,7 +250,7 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Simulation Prompt Input Card
+        // Text Box Card (Complements Tab 1 without erasing it)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -224,6 +258,12 @@ fun NarrativeOracleScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = strings.promptInputLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = promptText,
                     onValueChange = { promptText = it },
@@ -262,7 +302,7 @@ fun NarrativeOracleScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(strings.synthesizingMessage, maxLines = 1)
+                        Text(strings.synthesizingMessage)
                     } else {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
@@ -273,12 +313,18 @@ fun NarrativeOracleScreen(
                         Text(strings.runSimulationButton)
                     }
                 }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "${strings.activeProviderChip} $activeEngineLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Simulation Logs History (with Wikipedia & Academic Grounding + Somatic Shift Box)
+        // Clean, Accessible Reflections History (No backend Wikipedia/Crossref citations shown!)
         uiState.logs.forEach { log ->
             Card(
                 modifier = Modifier
@@ -290,24 +336,13 @@ fun NarrativeOracleScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = log.providerUsed.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "A:${(log.biofeedbackArousal * 100).toInt()}% · V:${(log.biofeedbackValence * 100).toInt()}% · F:${(log.biofeedbackFocus * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        text = "Esferas combinadas: ${log.activeConceptsCsv}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "“${log.userPrompt}”",
                         style = MaterialTheme.typography.titleLarge,
@@ -315,77 +350,9 @@ fun NarrativeOracleScreen(
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
-
-                    // Grounding Citations (Wikipedia & Academic Crossref)
-                    val wikiItems = remember(log.wikiSourcesJson) { parseJsonCitations(log.wikiSourcesJson) }
-                    val academicItems = remember(log.academicSourcesJson) { parseJsonCitations(log.academicSourcesJson) }
-
-                    AnimatedVisibility(visible = wikiItems.isNotEmpty() || academicItems.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = strings.groundingSourcesTitle,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                wikiItems.forEach { (title, snippet) ->
-                                    Row(
-                                        verticalAlignment = Alignment.Top,
-                                        modifier = Modifier.padding(vertical = 3.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MenuBook,
-                                            contentDescription = strings.groundingWikiBadge,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier
-                                                .size(15.dp)
-                                                .padding(top = 2.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "[${strings.groundingWikiBadge}] $title — $snippet",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                                academicItems.forEach { (title, snippet) ->
-                                    Row(
-                                        verticalAlignment = Alignment.Top,
-                                        modifier = Modifier.padding(vertical = 3.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Science,
-                                            contentDescription = strings.groundingAcademicBadge,
-                                            tint = MaterialTheme.colorScheme.tertiary,
-                                            modifier = Modifier
-                                                .size(15.dp)
-                                                .padding(top = 2.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "[${strings.groundingAcademicBadge}] $title — $snippet",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Main Philosophical & Neuroscientific Narrative
                     Text(
                         text = log.narrativeResponse,
                         style = MaterialTheme.typography.bodyLarge,
@@ -394,7 +361,6 @@ fun NarrativeOracleScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Somatic & Perceptual Shift Callout Box
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
@@ -403,7 +369,7 @@ fun NarrativeOracleScreen(
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
-                                text = strings.sensoryShiftPrompt.uppercase(),
+                                text = strings.sensoryShiftPrompt,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -420,20 +386,4 @@ fun NarrativeOracleScreen(
             }
         }
     }
-}
-
-private fun parseJsonCitations(rawJson: String): List<Pair<String, String>> {
-    return runCatching {
-        val arr = JSONArray(rawJson)
-        val list = mutableListOf<Pair<String, String>>()
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val title = o.optString("title", "")
-            val snippet = o.optString("snippet", "").ifBlank { o.optString("authors", "") }
-            if (title.isNotBlank()) {
-                list.add(title to snippet)
-            }
-        }
-        list
-    }.getOrDefault(emptyList())
 }

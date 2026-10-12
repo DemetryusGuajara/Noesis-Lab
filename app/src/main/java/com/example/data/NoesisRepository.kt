@@ -26,8 +26,9 @@ data class UserPreferencesState(
     val themeMode: ThemeMode = ThemeMode.DARK,
     val language: AppLanguage = AppLanguage.SYSTEM,
     val soundEnabled: Boolean = true,
+    val binauralEnabled: Boolean = false,
     val bioArousal: Float = 0.45f,
-    val bioValence: Float = 0.60f,
+    val bioValence: Float = 0.65f,
     val bioFocus: Float = 0.75f
 )
 
@@ -39,6 +40,7 @@ class NoesisRepository(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
+        val BINAURAL_ENABLED = booleanPreferencesKey("binaural_enabled")
         val BIO_AROUSAL = floatPreferencesKey("bio_arousal")
         val BIO_VALENCE = floatPreferencesKey("bio_valence")
         val BIO_FOCUS = floatPreferencesKey("bio_focus")
@@ -51,8 +53,9 @@ class NoesisRepository(
             themeMode = runCatching { ThemeMode.valueOf(themeStr) }.getOrDefault(ThemeMode.DARK),
             language = AppLanguage.fromCode(langStr),
             soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
+            binauralEnabled = prefs[Keys.BINAURAL_ENABLED] ?: false,
             bioArousal = prefs[Keys.BIO_AROUSAL] ?: 0.45f,
-            bioValence = prefs[Keys.BIO_VALENCE] ?: 0.60f,
+            bioValence = prefs[Keys.BIO_VALENCE] ?: 0.65f,
             bioFocus = prefs[Keys.BIO_FOCUS] ?: 0.75f
         )
     }
@@ -74,6 +77,10 @@ class NoesisRepository(
         context.dataStore.edit { it[Keys.SOUND_ENABLED] = enabled }
     }
 
+    suspend fun setBinauralEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.BINAURAL_ENABLED] = enabled }
+    }
+
     suspend fun updateBiofeedback(arousal: Float, valence: Float, focus: Float) {
         context.dataStore.edit {
             it[Keys.BIO_AROUSAL] = arousal.coerceIn(0f, 1f)
@@ -92,16 +99,16 @@ class NoesisRepository(
         if (dao.getAllLogsOnce().isEmpty()) {
             dao.insertSimulationLog(
                 SimulationLogEntity(
-                    userPrompt = "Inauguração do Campo Perceptivo: Como o Desejo, o Medo e o Tempo dobram o espaço da consciência?",
-                    activeConceptsCsv = "Desejo, Medo, Tempo, Identidade",
-                    biofeedbackArousal = 0.48f,
+                    userPrompt = "Como as minhas ideias e emoções atuais estão conversando entre si hoje?",
+                    activeConceptsCsv = "Desejo, Medo, Tempo, Criatividade",
+                    biofeedbackArousal = 0.45f,
                     biofeedbackValence = 0.65f,
-                    biofeedbackFocus = 0.82f,
-                    wikiSourcesJson = """[{"title":"Fenomenologia da Percepção (Merleau-Ponty)","snippet":"O corpo próprio não é apenas um objeto no mundo, mas o meio pelo qual há um mundo percebido; o espaço mental curva-se segundo a intencionalidade motora e afetiva."}]""",
-                    academicSourcesJson = """[{"title":"Rizoma, Atratores Estranhos e Dinâmica Não-Linear na Cognição","authors":"G. Deleuze & F. Varela","year":"1991"}]""",
-                    narrativeResponse = "Observe o campo diante de você: o **Medo** não é um bloco sólido, mas uma partícula de alta frequência (310 Hz) que contrai a métrica ao seu redor, criando uma micro-gravidade defensiva. Já o **Desejo** opera como um atrator de Deleuze — não uma falta, mas uma força produtiva que lança filamentos rizomáticos em direção ao **Tempo**.\n\nNa perspectiva de **Nagarjuna (Śūnyatā)**, nenhuma dessas partículas possui existência intrínseca (*svabhāva*): o Medo só vibra porque a **Identidade** tenta preservar uma fronteira estática contra o fluxo temporal.",
-                    somaticSuggestion = "Respire lentamente sentindo a distância entre seus olhos e a tela. Imagine que a tensão do Medo se dissolve de um ponto rígido na garganta para uma onda circular larga e morna no peito. Sinta o peso gravitacional dos pensamentos diminuir em 30%.",
-                    providerUsed = "Noesis Core Engine",
+                    biofeedbackFocus = 0.78f,
+                    wikiSourcesJson = "[]",
+                    academicSourcesJson = "[]",
+                    narrativeResponse = "Olhando para o desenho das esferas na sua tela, você reuniu **Desejo**, **Medo**, **Tempo** e **Criatividade**.\n\nQuando colocamos o **Medo** perto do **Desejo**, muitas vezes sentimos uma trava — como se quiséssemos avançar e frear ao mesmo tempo. Mas repare que, no seu mapa, a **Criatividade** e o **Tempo** servem como uma ponte entre eles: você não precisa ter todas as certezas agora para dar o próximo passo.",
+                    somaticSuggestion = "Respire fundo pelo nariz e solte o ar devagar pela boca. Olhe para as cores suaves do aplicativo e imagine que qualquer pressa ou cobrança vai diminuindo de tamanho, abrindo espaço para a sua curiosidade.",
+                    providerUsed = "Motor Criativo Integrado",
                     languageCode = "pt"
                 )
             )
@@ -137,7 +144,6 @@ class NoesisRepository(
 
     suspend fun deleteProvider(id: Long) = dao.deleteProvider(id)
 
-    // Portable JSON Backup Export & Import via Android SAF (Storage Access Framework)
     suspend fun exportBackupToUri(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val prefs = preferencesFlow.first()
@@ -147,13 +153,14 @@ class NoesisRepository(
             val providers = dao.getAllProvidersOnce()
 
             val root = JSONObject().apply {
-                put("schemaVersion", 1)
+                put("schemaVersion", 2)
                 put("exportedAt", System.currentTimeMillis())
                 put("app", "Noesis Lab")
                 put("preferences", JSONObject().apply {
                     put("themeMode", prefs.themeMode.name)
                     put("language", prefs.language.code)
                     put("soundEnabled", prefs.soundEnabled)
+                    put("binauralEnabled", prefs.binauralEnabled)
                     put("bioArousal", prefs.bioArousal.toDouble())
                     put("bioValence", prefs.bioValence.toDouble())
                     put("bioFocus", prefs.bioFocus.toDouble())
@@ -251,9 +258,10 @@ class NoesisRepository(
                 )
                 setLanguage(AppLanguage.fromCode(prefObj.optString("language", "system")))
                 setSoundEnabled(prefObj.optBoolean("soundEnabled", true))
+                setBinauralEnabled(prefObj.optBoolean("binauralEnabled", false))
                 updateBiofeedback(
                     arousal = prefObj.optDouble("bioArousal", 0.45).toFloat(),
-                    valence = prefObj.optDouble("bioValence", 0.60).toFloat(),
+                    valence = prefObj.optDouble("bioValence", 0.65).toFloat(),
                     focus = prefObj.optDouble("bioFocus", 0.75).toFloat()
                 )
             }
@@ -264,7 +272,7 @@ class NoesisRepository(
                     val o = arr.getJSONObject(i)
                     list.add(
                         ConceptParticleEntity(
-                            name = o.optString("name", "Concept"),
+                            name = o.optString("name", "Conceito"),
                             archetypeKey = o.optString("archetypeKey", "CUSTOM"),
                             mass = o.optDouble("mass", 1.0).toFloat(),
                             charge = o.optDouble("charge", 0.0).toFloat(),
@@ -327,7 +335,7 @@ class NoesisRepository(
                             academicSourcesJson = o.optString("academicSourcesJson", "[]"),
                             narrativeResponse = o.optString("narrativeResponse", ""),
                             somaticSuggestion = o.optString("somaticSuggestion", ""),
-                            providerUsed = o.optString("providerUsed", "Noesis Core"),
+                            providerUsed = o.optString("providerUsed", "Noesis"),
                             languageCode = o.optString("languageCode", "pt"),
                             timestamp = o.optLong("timestamp", System.currentTimeMillis())
                         )
@@ -370,62 +378,50 @@ class NoesisRepository(
             ConceptParticleEntity(
                 name = "Desejo",
                 archetypeKey = "DESIRE",
-                mass = 1.65f,
+                mass = 1.60f,
                 charge = 0.85f,
                 frequencyHz = 432f,
                 spin = 1.2f,
-                posX = 0.30f,
-                posY = 0.36f,
+                posX = 0.28f,
+                posY = 0.35f,
                 colorHex = 0xFFD97757,
-                philosophicalNote = "Deleuze & Guattari: O desejo não é falta, mas máquina desejante e produção de fluxos no campo imanente."
+                philosophicalNote = "Aquilo que te atrai, inspira e coloca sua energia em movimento hoje."
             ),
             ConceptParticleEntity(
                 name = "Medo",
                 archetypeKey = "FEAR",
-                mass = 1.40f,
-                charge = -0.80f,
+                mass = 1.35f,
+                charge = -0.65f,
                 frequencyHz = 310f,
-                spin = -1.4f,
+                spin = -1.2f,
                 posX = 0.72f,
-                posY = 0.32f,
+                posY = 0.33f,
                 colorHex = 0xFF7A6F9B,
-                philosophicalNote = "Neurociência Afetiva: Contração amigdaliana do horizonte preditivo (Friston) para minimizar surpresa."
+                philosophicalNote = "Um sinal de cautela ou proteção tentando evitar riscos antes de agir."
             ),
             ConceptParticleEntity(
                 name = "Tempo",
                 archetypeKey = "TIME",
-                mass = 2.10f,
-                charge = 0.15f,
+                mass = 1.85f,
+                charge = 0.20f,
                 frequencyHz = 528f,
                 spin = 0.6f,
                 posX = 0.50f,
-                posY = 0.62f,
+                posY = 0.64f,
                 colorHex = 0xFFD4AF59,
-                philosophicalNote = "Merleau-Ponty & Rovelli: O tempo não é uma linha externa, mas uma rede de relações térmicas e retenções/protensões vividas."
+                philosophicalNote = "O ritmo entre as memórias do que passou e a expectativa do que vem pela frente."
             ),
             ConceptParticleEntity(
-                name = "Identidade",
-                archetypeKey = "IDENTITY",
+                name = "Criatividade",
+                archetypeKey = "CUSTOM",
                 mass = 1.50f,
-                charge = 0.30f,
-                frequencyHz = 396f,
+                charge = 0.75f,
+                frequencyHz = 639f,
                 spin = 0.9f,
-                posX = 0.25f,
+                posX = 0.26f,
                 posY = 0.70f,
                 colorHex = 0xFF5A8F99,
-                philosophicalNote = "Nagarjuna & Metzinger: O 'Eu' como modelo fenomênico transparente (Ego Tunnel), vazio de substância isolada."
-            ),
-            ConceptParticleEntity(
-                name = "Justiça",
-                archetypeKey = "JUSTICE",
-                mass = 1.75f,
-                charge = 0.70f,
-                frequencyHz = 639f,
-                spin = 0.2f,
-                posX = 0.76f,
-                posY = 0.68f,
-                colorHex = 0xFF7D9471,
-                philosophicalNote = "Simetria relacional e equilíbrio homeostático coletivo no tecido intersubjetivo."
+                philosophicalNote = "A capacidade de misturar referências, estética, cores e ideias novas."
             )
         )
 
@@ -433,107 +429,107 @@ class NoesisRepository(
             ArchitecturalZoneEntity(
                 zoneId = "zone_emptiness",
                 titleKey = "archRoomEmptiness",
-                customTitle = "Jardim de Śūnyatā",
-                conceptDomain = "Vacuidade Relacional & Originação Dependente (Nagarjuna)",
+                customTitle = "Jardim do Silêncio",
+                conceptDomain = "Pausa, Desapego & Mente Clara",
                 geometryType = "VOID_GARDEN",
                 elevationLevel = 0.90f,
-                luminosity = 0.92f,
-                tensionIndex = 0.12f,
+                luminosity = 0.90f,
+                tensionIndex = 0.15f,
                 resonantHz = 528f,
                 mapX = 0.50f,
-                mapY = 0.18f,
+                mapY = 0.16f,
                 connectedZonesCsv = "zone_time,zone_identity,zone_justice",
-                architecturalDescription = "Um observatório suspenso de arcos abertos sem paredes fixas. Aqui toda estrutura revela sua interdependência: quando você altera uma coluna, todas as outras câmaras ajustam sua curvatura."
+                architecturalDescription = "Um terraço aberto e silencioso na sua mente. É o lugar para onde você vai quando precisa soltar o excesso de pensamentos e respirar sem cobrança."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_identity",
                 titleKey = "archRoomIdentity",
-                customTitle = "Torre Autopoiética",
-                conceptDomain = "Identidade, Eu Fenomênico & Fronteira Markov (Varela / Friston)",
+                customTitle = "Espelho de Quem Sou",
+                conceptDomain = "Autoimagem, Valores & Essência",
                 geometryType = "TOWER",
                 elevationLevel = 0.55f,
-                luminosity = 0.74f,
-                tensionIndex = 0.42f,
+                luminosity = 0.75f,
+                tensionIndex = 0.40f,
                 resonantHz = 396f,
-                mapX = 0.22f,
+                mapX = 0.20f,
                 mapY = 0.36f,
                 connectedZonesCsv = "zone_emptiness,zone_desire,zone_fear",
-                architecturalDescription = "Uma espiral translúcida de espelhos semipermeáveis (Cobertor de Markov) que filtra o que é 'interno' e 'externo', reconstruindo continuamente a narrativa de quem observa."
+                architecturalDescription = "A sala onde ficam a sua história, os seus gostos e a forma como você se vê. Aumentar a clareza aqui ajuda a ser mais gentil consigo mesmo."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_justice",
                 titleKey = "archRoomJustice",
-                customTitle = "Pórtico de Simetria",
-                conceptDomain = "Justiça, Reciprocidade & Harmonia Geométrica",
+                customTitle = "Praça do Equilíbrio",
+                conceptDomain = "Harmonia, Relações & Escolhas Justas",
                 geometryType = "LATTICE",
                 elevationLevel = 0.50f,
                 luminosity = 0.80f,
                 tensionIndex = 0.30f,
                 resonantHz = 639f,
-                mapX = 0.78f,
+                mapX = 0.80f,
                 mapY = 0.36f,
                 connectedZonesCsv = "zone_emptiness,zone_power,zone_time",
-                architecturalDescription = "Colunatas geodésicas em balanço perfeito. Cada viga sustenta o peso exato da viga oposta; qualquer assimetria de poder faz o piso inclinar-se visivelmente."
+                architecturalDescription = "O espaço onde você pesa decisões e busca equilíbrio entre o que entrega aos outros e o que guarda para si."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_time",
                 titleKey = "archRoomTime",
-                customTitle = "Galeria Cronos-Aiôn",
-                conceptDomain = "Tempo Profundo, Memória & Horizonte Perceptivo (Merleau-Ponty)",
+                customTitle = "Varanda do Tempo",
+                conceptDomain = "Memórias, Planos & Momento Presente",
                 geometryType = "SPIRAL",
                 elevationLevel = 0.15f,
-                luminosity = 0.65f,
-                tensionIndex = 0.48f,
+                luminosity = 0.68f,
+                tensionIndex = 0.45f,
                 resonantHz = 432f,
                 mapX = 0.50f,
                 mapY = 0.50f,
                 connectedZonesCsv = "zone_emptiness,zone_desire,zone_fear,zone_justice,zone_power",
-                architecturalDescription = "O eixo central do laboratório mental. Passarelas helicoidais onde o passado (retenção) e o futuro (protensão) se cruzam no instante presente espesso."
+                architecturalDescription = "O corredor central que liga lembranças antigas aos planos futuros. Diminuir a pressão aqui reduz a pressa e a ansiedade pelo amanhã."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_desire",
                 titleKey = "archRoomDesire",
-                customTitle = "Átrio Gravitacional",
-                conceptDomain = "Desejo Produtivo, Eros & Atratores Rizomáticos (Deleuze)",
+                customTitle = "Sala dos Desejos",
+                conceptDomain = "Vontades, Paixões & Curiosidade",
                 geometryType = "ATRIUM",
                 elevationLevel = -0.15f,
                 luminosity = 0.78f,
-                tensionIndex = 0.64f,
+                tensionIndex = 0.55f,
                 resonantHz = 480f,
-                mapX = 0.24f,
+                mapX = 0.22f,
                 mapY = 0.70f,
                 connectedZonesCsv = "zone_identity,zone_time,zone_power",
-                architecturalDescription = "Uma abóbada orgânica em terracota pulsante. Pontes suspensas se projetam espontaneamente em direção aos objetos de atenção, gerando calor cinético."
+                architecturalDescription = "Um ambiente quente e cheio de vida onde nascem seus projetos, sonhos e tudo o que faz seus olhos brilharem."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_power",
                 titleKey = "archRoomPower",
-                customTitle = "Forja de Conatus",
-                conceptDomain = "Poder, Dominação, Raiva & Potência de Agir (Spinoza / Foucault)",
+                customTitle = "Oficina da Ação",
+                conceptDomain = "Força Pessoal, Coragem & Limites",
                 geometryType = "MONOLITH",
                 elevationLevel = -0.35f,
-                luminosity = 0.52f,
-                tensionIndex = 0.82f,
+                luminosity = 0.58f,
+                tensionIndex = 0.72f,
                 resonantHz = 256f,
-                mapX = 0.76f,
+                mapX = 0.78f,
                 mapY = 0.70f,
                 connectedZonesCsv = "zone_justice,zone_time,zone_desire,zone_fear",
-                architecturalDescription = "Estruturas megalíticas de basalto e bronze onde vetores de força colidem. Aqui a dominação (potestas rígida) pode ser transmutada em potência criativa (potentia)."
+                architecturalDescription = "Onde a sua energia vira atitude prática. Ajustar este espaço ajuda a transformar irritação ou controle excessivo em força construtiva."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_fear",
                 titleKey = "archRoomFear",
-                customTitle = "Cripta de Contração",
-                conceptDomain = "Medo, Angústia & Vigilância Preditiva",
+                customTitle = "Refúgio da Cautela",
+                conceptDomain = "Medos, Dúvidas & Autoproteção",
                 geometryType = "LABYRINTH",
                 elevationLevel = -0.75f,
-                luminosity = 0.34f,
-                tensionIndex = 0.88f,
+                luminosity = 0.42f,
+                tensionIndex = 0.80f,
                 resonantHz = 196f,
                 mapX = 0.50f,
-                mapY = 0.84f,
+                mapY = 0.85f,
                 connectedZonesCsv = "zone_identity,zone_time,zone_power",
-                architecturalDescription = "Corredores estreitos de acústica reverberante nas fundações da mente. Quando iluminada pela observação consciente, suas paredes se afastam e se tornam translúcidas."
+                architecturalDescription = "A sala subterrânea onde ficam guardadas as inseguranças e alertas. Quando você traz luz e reduz a pressão aqui, o medo deixa de assustar e vira apenas prudência."
             )
         )
     }

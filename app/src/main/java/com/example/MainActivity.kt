@@ -6,29 +6,43 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BlurCircular
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BlurCircular
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
@@ -39,7 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -82,19 +96,64 @@ fun NoesisAppShell(
         }
     }
 
+    // Interactive "Como Funciona?" Guide Overlay Modal
+    if (uiState.showHelpModal) {
+        AlertDialog(
+            onDismissRequest = { viewModel.toggleHelpModal(false) },
+            title = {
+                Column {
+                    Text(
+                        text = strings.guideModalTitle,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = strings.guideModalSubtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    GuideSectionItem(title = strings.guideStep1Title, body = strings.guideStep1Body)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    GuideSectionItem(title = strings.guideStep2Title, body = strings.guideStep2Body)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    GuideSectionItem(title = strings.guideStep3Title, body = strings.guideStep3Body)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    GuideSectionItem(title = strings.guideAudioNoteTitle, body = strings.guideAudioNoteBody)
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.toggleHelpModal(false) }) {
+                    Text(strings.guideCloseButton)
+                }
+            }
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
+            // Generous statusBarsPadding + extra top margin so it never collides with Android status bar
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
                 color = MaterialTheme.colorScheme.background,
                 border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                        .padding(start = 18.dp, end = 14.dp, top = 14.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -106,9 +165,27 @@ fun NoesisAppShell(
                         Text(
                             text = strings.appSubtitle,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.toggleHelpModal(true) },
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.testTag("help_guide_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = strings.helpButtonLabel,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = strings.helpButtonLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -116,6 +193,7 @@ fun NoesisAppShell(
         },
         bottomBar = {
             NavigationBar(
+                modifier = Modifier.navigationBarsPadding(),
                 containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 0.dp
             ) {
@@ -163,13 +241,14 @@ fun NoesisAppShell(
                 NoesisTab.FIELD -> FieldSimulationScreen(
                     uiState = uiState,
                     onSelectParticle = viewModel::selectParticle,
-                    onDragParticle = viewModel::updateParticlePosition,
+                    onCommitParticlePosition = viewModel::commitParticlePosition,
                     onUpdateParticleParams = viewModel::updateParticleParameters,
                     onInjectConcept = viewModel::injectConceptParticle,
                     onRemoveParticle = viewModel::removeParticle,
                     onResetParticles = viewModel::resetFieldParticles,
                     onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) },
-                    onToggleSound = viewModel::setSoundEnabled
+                    onToggleSound = viewModel::setSoundEnabled,
+                    onToggleBinaural = viewModel::setBinauralEnabled
                 )
 
                 NoesisTab.ARCHITECTURE -> ArchitecturalMapScreen(
@@ -178,7 +257,7 @@ fun NoesisAppShell(
                     onTransmuteZone = viewModel::transmuteArchitecturalZone,
                     onMeditateInZone = { zone ->
                         viewModel.collideAndRunSimulation(
-                            "Explorar a câmara arquitetônica '${zone.customTitle}' (${zone.conceptDomain}) com luminosidade ${(zone.luminosity * 100).toInt()}% e tensão ${(zone.tensionIndex * 100).toInt()}%."
+                            "Estou olhando para o espaço '${zone.customTitle}' (${zone.conceptDomain}) com clareza em ${(zone.luminosity * 100).toInt()}% e nível de pressão em ${(zone.tensionIndex * 100).toInt()}%."
                         )
                     }
                 )
@@ -218,5 +297,23 @@ fun NoesisAppShell(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GuideSectionItem(title: String, body: String) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }

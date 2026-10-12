@@ -22,7 +22,6 @@ import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -40,6 +39,7 @@ enum class NoesisTab {
 
 data class NoesisUiState(
     val currentTab: NoesisTab = NoesisTab.FIELD,
+    val showHelpModal: Boolean = false,
     val preferences: UserPreferencesState = UserPreferencesState(),
     val strings: StringsCatalog = AppLocalizer.getCatalog(AppLanguage.SYSTEM),
     val particles: List<ConceptParticleEntity> = emptyList(),
@@ -55,7 +55,8 @@ data class NoesisUiState(
     val statusBannerMessage: String? = null,
     val phaseCoherence: Float = 0.78f,
     val entropyIndex: Float = 0.34f,
-    val meanFrequencyHz: Float = 432f
+    val meanFrequencyHz: Float = 432f,
+    val meanValence: Float = 0.50f
 )
 
 class NoesisViewModel(application: Application) : AndroidViewModel(application) {
@@ -65,6 +66,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     val soundEngine = MysticSoundEngine()
 
     private val _currentTab = MutableStateFlow(NoesisTab.FIELD)
+    private val _showHelpModal = MutableStateFlow(false)
     private val _selectedParticleId = MutableStateFlow<Long?>(null)
     private val _selectedZoneId = MutableStateFlow<String?>("zone_time")
     private val _isSimulating = MutableStateFlow(false)
@@ -73,7 +75,6 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private val _lastVerificationReport = MutableStateFlow<ProviderVerificationReport?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
 
-    // Implicit kinetic biofeedback tracker (tracks touch intervals & velocity)
     private var lastTouchTimestamp = 0L
     private val recentTouchIntervalsMs = ArrayDeque<Long>()
 
@@ -92,8 +93,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         _selectedParticleId,
         _selectedZoneId,
         _isSimulating,
-        combine(_latestGrounding, _isVerifyingProvider, _lastVerificationReport, _statusBannerMessage) { g, v, r, m ->
-            Quad(g, v, r, m)
+        combine(_showHelpModal, _isVerifyingProvider, _lastVerificationReport, _statusBannerMessage) { h, v, r, m ->
+            Quad(h, v, r, m)
         }
     ) { tab, selPart, selZone, sim, extra ->
         Quint(tab, selPart, selZone, sim, extra)
@@ -111,24 +112,31 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             particles.map { it.frequencyHz }.average().toFloat()
         } else 432f
 
+        val avgCharge = if (particles.isNotEmpty()) {
+            particles.map { it.charge }.average().toFloat()
+        } else 0.3f
+
+        val normalizedValence = ((avgCharge + 1f) / 2f).coerceIn(0f, 1f)
+
         val chargeVariance = if (particles.size > 1) {
-            val meanC = particles.map { it.charge }.average().toFloat()
-            particles.map { abs(it.charge - meanC) }.average().toFloat()
+            particles.map { abs(it.charge - avgCharge) }.average().toFloat()
         } else 0.25f
 
         val entropy = (chargeVariance * 0.6f + prefs.bioArousal * 0.4f).coerceIn(0.08f, 0.96f)
         val coherence = (1.0f - entropy * 0.65f + prefs.bioFocus * 0.25f).coerceIn(0.12f, 0.99f)
 
         soundEngine.setSoundEnabled(prefs.soundEnabled)
+        soundEngine.setBinauralEnabled(prefs.binauralEnabled)
         soundEngine.updateEmotionalFieldAcoustics(
             meanFrequencyHz = meanFreq,
             arousal = prefs.bioArousal,
-            valence = prefs.bioValence,
+            valence = (normalizedValence * 0.6f + prefs.bioValence * 0.4f).coerceIn(0f, 1f),
             coherence = coherence
         )
 
         NoesisUiState(
             currentTab = trans.first,
+            showHelpModal = trans.fifth.first,
             preferences = prefs,
             strings = strings,
             particles = particles,
@@ -138,13 +146,14 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             logs = logs,
             providers = providers,
             isSimulating = trans.fourth,
-            latestGrounding = trans.fifth.first,
+            latestGrounding = _latestGrounding.value,
             isVerifyingProvider = trans.fifth.second,
             lastVerificationReport = trans.fifth.third,
             statusBannerMessage = trans.fifth.fourth,
             phaseCoherence = coherence,
             entropyIndex = entropy,
-            meanFrequencyHz = meanFreq
+            meanFrequencyHz = meanFreq,
+            meanValence = normalizedValence
         )
     }.stateIn(
         scope = viewModelScope,
@@ -159,6 +168,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun toggleHelpModal(show: Boolean) {
+        _showHelpModal.value = show
+    }
+
     fun selectTab(tab: NoesisTab) {
         _currentTab.value = tab
         soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.6f, durationMs = 240)
@@ -166,15 +179,15 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectParticle(particle: ConceptParticleEntity) {
         _selectedParticleId.value = particle.id
-        recordImplicitKineticTouch(dragSpeedPx = 12f)
+        recordImplicitKineticTouch(dragSpeedPx = 10f)
         soundEngine.triggerTouchHarmonic(
             frequencyHz = particle.frequencyHz,
             valence = particle.charge,
-            durationMs = 460
+            durationMs = 380
         )
     }
 
-    fun updateParticlePosition(particle: ConceptParticleEntity, newX: Float, newY: Float, dragSpeed: Float) {
+    fun commitParticlePosition(particle: ConceptParticleEntity, newX: Float, newY: Float, dragSpeed: Float) {
         recordImplicitKineticTouch(dragSpeedPx = dragSpeed)
         viewModelScope.launch {
             repository.updateParticle(
@@ -187,13 +200,13 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateParticleParameters(particle: ConceptParticleEntity, mass: Float, charge: Float, freqHz: Float) {
-        soundEngine.triggerTouchHarmonic(frequencyHz = freqHz, valence = charge, durationMs = 300)
+        soundEngine.triggerTouchHarmonic(frequencyHz = freqHz, valence = charge, durationMs = 240)
         viewModelScope.launch {
             repository.updateParticle(
                 particle.copy(
                     mass = mass.coerceIn(0.3f, 2.5f),
                     charge = charge.coerceIn(-1f, 1f),
-                    frequencyHz = freqHz.coerceIn(110f, 880f)
+                    frequencyHz = freqHz.coerceIn(136f, 852f)
                 )
             )
         }
@@ -207,7 +220,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         soundEngine.triggerTouchHarmonic(
             frequencyHz = preset.frequencyHz,
             valence = preset.charge,
-            durationMs = 520
+            durationMs = 450
         )
 
         viewModelScope.launch {
@@ -230,14 +243,14 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun removeParticle(id: Long) {
-        soundEngine.triggerTouchHarmonic(frequencyHz = 220f, valence = -0.2f, durationMs = 280)
+        soundEngine.triggerTouchHarmonic(frequencyHz = 220f, valence = -0.2f, durationMs = 260)
         viewModelScope.launch {
             repository.deleteParticle(id)
         }
     }
 
     fun resetFieldParticles() {
-        soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.8f, durationMs = 600)
+        soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.8f, durationMs = 500)
         viewModelScope.launch {
             repository.resetParticlesToDefault()
         }
@@ -248,7 +261,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         soundEngine.triggerTouchHarmonic(
             frequencyHz = zone.resonantHz,
             valence = zone.luminosity - zone.tensionIndex,
-            durationMs = 500
+            durationMs = 420
         )
     }
 
@@ -256,7 +269,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         soundEngine.triggerTouchHarmonic(
             frequencyHz = zone.resonantHz * (0.9f + newLuminosity * 0.25f),
             valence = newLuminosity - newTension,
-            durationMs = 450
+            durationMs = 350
         )
         viewModelScope.launch {
             repository.updateZone(
@@ -283,11 +296,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             if (recentTouchIntervalsMs.size > 8) recentTouchIntervalsMs.removeFirst()
 
             val avgInterval = recentTouchIntervalsMs.average().toFloat()
-            // Rapid touches + fast drag increases implicit autonomic arousal slightly
             val cadenceFactor = ((600f - avgInterval.coerceIn(100f, 600f)) / 500f).coerceIn(0f, 1f)
             val speedFactor = (dragSpeedPx / 60f).coerceIn(0f, 1f)
             val currentPrefs = uiState.value.preferences
-            val blendedArousal = (currentPrefs.bioArousal * 0.82f + (cadenceFactor * 0.5f + speedFactor * 0.5f) * 0.18f)
+            val blendedArousal = (currentPrefs.bioArousal * 0.85f + (cadenceFactor * 0.5f + speedFactor * 0.5f) * 0.15f)
                 .coerceIn(0.1f, 0.95f)
 
             viewModelScope.launch {
@@ -307,20 +319,20 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         val conceptNames = state.particles.map { it.name }
         val promptToUse = customPrompt?.takeIf { it.isNotBlank() } ?: when (state.strings.languageCode) {
-            "en" -> "Model the collision and physical manifestation of ${conceptNames.joinToString(", ")} in my perceptual field and guide a real cognitive shift."
-            "es" -> "Modela la colisión y manifestación física de ${conceptNames.joinToString(", ")} en mi campo perceptivo e induce un cambio cognitivo sentido."
-            "fr" -> "Modélisez la collision et la manifestation physique de ${conceptNames.joinToString(", ")} dans mon champ perceptif et guidez un changement cognitif."
-            else -> "Modele a colisão, a morfologia física e a evolução de ${conceptNames.joinToString(", ")} no meu campo de percepção, provocando uma mudança cognitiva sentida."
+            "en" -> "What does the combination of ${conceptNames.joinToString(", ")} reveal about my current state?"
+            "es" -> "¿Qué revela la combinación de ${conceptNames.joinToString(", ")} sobre mi momento actual?"
+            "fr" -> "Que révèle la combinaison de ${conceptNames.joinToString(", ")} sur mon état actuel ?"
+            else -> "O que a combinação entre ${conceptNames.joinToString(", ")} revela sobre o meu momento atual?"
         }
 
         _currentTab.value = NoesisTab.ORACLE
         _isSimulating.value = true
-        soundEngine.triggerTouchHarmonic(frequencyHz = 639f, valence = 0.75f, durationMs = 680)
+        soundEngine.triggerTouchHarmonic(frequencyHz = 639f, valence = 0.75f, durationMs = 600)
 
         viewModelScope.launch {
             try {
                 val particlesSummary = state.particles.joinToString("; ") {
-                    "${it.name} (Mass=${"%.2f".format(it.mass)}, Valence=${"%.2f".format(it.charge)}, Freq=${it.frequencyHz.toInt()}Hz)"
+                    "${it.name} (Tamanho=${"%.1f".format(it.mass)}, Sensação=${if (it.charge >= 0) "Leve/Aberta" else "Tensa/Pesada"}, Tom=${it.frequencyHz.toInt()}Hz)"
                 }
 
                 val activeProvider = state.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
@@ -343,27 +355,6 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
                 _latestGrounding.value = result.grounding
 
-                val wikiJson = JSONArray().apply {
-                    result.grounding.wikiSources.forEach { src ->
-                        put(JSONObject().apply {
-                            put("title", src.title)
-                            put("snippet", src.snippet)
-                            put("url", src.url)
-                        })
-                    }
-                }.toString()
-
-                val academicJson = JSONArray().apply {
-                    result.grounding.academicSources.forEach { src ->
-                        put(JSONObject().apply {
-                            put("title", src.title)
-                            put("authors", src.subtitleOrAuthors)
-                            put("snippet", src.snippet)
-                            put("url", src.url)
-                        })
-                    }
-                }.toString()
-
                 repository.addSimulationLog(
                     SimulationLogEntity(
                         userPrompt = promptToUse,
@@ -371,8 +362,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                         biofeedbackArousal = state.preferences.bioArousal,
                         biofeedbackValence = state.preferences.bioValence,
                         biofeedbackFocus = state.preferences.bioFocus,
-                        wikiSourcesJson = wikiJson,
-                        academicSourcesJson = academicJson,
+                        wikiSourcesJson = "[]",
+                        academicSourcesJson = "[]",
                         narrativeResponse = result.narrativeMarkdown,
                         somaticSuggestion = result.somaticShiftSuggestion,
                         providerUsed = result.providerLabel,
@@ -395,6 +386,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSoundEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.setSoundEnabled(enabled) }
+    }
+
+    fun setBinauralEnabled(enabled: Boolean) {
+        viewModelScope.launch { repository.setBinauralEnabled(enabled) }
     }
 
     fun verifyAndSaveByokProvider(
@@ -501,35 +496,35 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private fun resolveArchetypeSpec(name: String, keyHint: String): ArchetypeSpec {
         val lower = name.lowercase()
         return when {
-            keyHint == "FEAR" || lower.contains("medo") || lower.contains("fear") || lower.contains("miedo") || lower.contains("peur") || lower.contains("angústia") ->
-                ArchetypeSpec("FEAR", 1.45f, -0.80f, 310f, -1.4f, 0xFF7A6F9B, "Contração preditiva do horizonte interoceptivo (Friston/Damasio).")
-            keyHint == "DESIRE" || lower.contains("desejo") || lower.contains("desire") || lower.contains("deseo") || lower.contains("désir") ->
-                ArchetypeSpec("DESIRE", 1.65f, 0.85f, 432f, 1.2f, 0xFFD97757, "Máquina desejante produtiva e atrator rizomático (Deleuze).")
-            keyHint == "TIME" || lower.contains("tempo") || lower.contains("time") || lower.contains("tiempo") || lower.contains("temps") ->
-                ArchetypeSpec("TIME", 2.10f, 0.15f, 528f, 0.6f, 0xFFD4AF59, "Espessura do presente vivido entre retenção e protensão (Merleau-Ponty).")
-            keyHint == "IDENTITY" || lower.contains("identidade") || lower.contains("identity") || lower.contains("ego") ->
-                ArchetypeSpec("IDENTITY", 1.50f, 0.30f, 396f, 0.9f, 0xFF5A8F99, "Fronteira de Markov e processo autopoiético sem substância fixa (Varela/Nagarjuna).")
-            keyHint == "JUSTICE" || lower.contains("justiça") || lower.contains("justice") || lower.contains("justicia") ->
-                ArchetypeSpec("JUSTICE", 1.75f, 0.70f, 639f, 0.2f, 0xFF7D9471, "Geometria de reciprocidade e equilíbrio homeostático intersubjetivo.")
-            keyHint == "DOMINATION" || lower.contains("dominação") || lower.contains("domination") || lower.contains("controle") ->
-                ArchetypeSpec("DOMINATION", 1.95f, -0.65f, 220f, -1.1f, 0xFFB84A39, "Assimetria vetorial que captura fluxos livres em estruturas rígidas (Foucault).")
-            keyHint == "POWER" || lower.contains("poder") || lower.contains("power") || lower.contains("potência") || lower.contains("pouvoir") ->
-                ArchetypeSpec("POWER", 1.85f, 0.60f, 480f, 1.3f, 0xFFC98A4B, "Conatus e potência de afetar e ser afetado (Spinoza).")
-            keyHint == "ANGER" || lower.contains("raiva") || lower.contains("anger") || lower.contains("ira") || lower.contains("colère") ->
-                ArchetypeSpec("ANGER", 1.60f, -0.55f, 580f, 1.8f, 0xFFD14949, "Pico de entropia termodinâmica que rompe barreiras topológicas.")
-            keyHint == "EMPTINESS" || lower.contains("vazio") || lower.contains("vacuidade") || lower.contains("sunyata") || lower.contains("emptiness") ->
-                ArchetypeSpec("EMPTINESS", 0.55f, 0.95f, 741f, 0.0f, 0xFF9E9B90, "Śūnyatā (Nagarjuna): abertura relacional onde todas as formas co-emergem.")
+            keyHint == "FEAR" || lower.contains("medo") || lower.contains("fear") || lower.contains("dúvida") || lower.contains("ansiedade") ->
+                ArchetypeSpec("FEAR", 1.40f, -0.70f, 310f, -1.2f, 0xFF7A6F9B, "Sinal de cautela e proteção que pede segurança antes do próximo passo.")
+            keyHint == "DESIRE" || lower.contains("desejo") || lower.contains("desire") || lower.contains("paixão") || lower.contains("vontade") ->
+                ArchetypeSpec("DESIRE", 1.65f, 0.85f, 432f, 1.2f, 0xFFD97757, "Energia de atração, entusiasmo e vontade de criar ou viver algo novo.")
+            keyHint == "TIME" || lower.contains("tempo") || lower.contains("time") || lower.contains("futuro") || lower.contains("passado") ->
+                ArchetypeSpec("TIME", 1.85f, 0.20f, 528f, 0.6f, 0xFFD4AF59, "A relação com o ritmo das coisas, a memória e a paciência com os processos.")
+            keyHint == "IDENTITY" || lower.contains("identidade") || lower.contains("identity") || lower.contains("eu") ->
+                ArchetypeSpec("IDENTITY", 1.50f, 0.40f, 396f, 0.9f, 0xFF5A8F99, "Aquilo que define seus valores, seus limites e sua história atual.")
+            keyHint == "JUSTICE" || lower.contains("justiça") || lower.contains("justice") || lower.contains("equilíbrio") ->
+                ArchetypeSpec("JUSTICE", 1.65f, 0.70f, 639f, 0.3f, 0xFF7D9471, "Busca por harmonia, reciprocidade e escolhas justas no seu caminho.")
+            keyHint == "DOMINATION" || lower.contains("dominação") || lower.contains("controle") || lower.contains("cobrança") ->
+                ArchetypeSpec("DOMINATION", 1.80f, -0.60f, 220f, -1.1f, 0xFFB84A39, "Tentativa de controlar tudo pela força ou excesso de autocobrança.")
+            keyHint == "POWER" || lower.contains("poder") || lower.contains("força") || lower.contains("coragem") ->
+                ArchetypeSpec("POWER", 1.75f, 0.65f, 480f, 1.3f, 0xFFC98A4B, "Capacidade real de agir, realizar e transformar ideias em realidade.")
+            keyHint == "ANGER" || lower.contains("raiva") || lower.contains("irritação") || lower.contains("fúria") ->
+                ArchetypeSpec("ANGER", 1.55f, -0.50f, 580f, 1.6f, 0xFFD14949, "Energia intensa que surge quando um limite importante foi ultrapassado.")
+            keyHint == "EMPTINESS" || lower.contains("silêncio") || lower.contains("calma") || lower.contains("paz") || lower.contains("vazio") ->
+                ArchetypeSpec("EMPTINESS", 0.70f, 0.95f, 741f, 0.1f, 0xFF8AA37B, "Espaço aberto de calma e alívio que permite enxergar tudo com clareza.")
             else -> {
                 val hash = abs(name.hashCode())
                 val palette = listOf(0xFFD97757, 0xFFD4AF59, 0xFF5A8F99, 0xFF7D9471, 0xFF7A6F9B, 0xFFC98A4B)
                 ArchetypeSpec(
                     archetypeKey = "CUSTOM",
-                    mass = 1.0f + (hash % 120) / 100f,
-                    charge = ((hash % 180) - 90) / 100f,
-                    frequencyHz = 240f + (hash % 480).toFloat(),
-                    spin = ((hash % 240) - 120) / 100f,
+                    mass = 1.1f + (hash % 100) / 100f,
+                    charge = ((hash % 160) - 60) / 100f,
+                    frequencyHz = 280f + (hash % 420).toFloat(),
+                    spin = ((hash % 200) - 100) / 100f,
                     colorHex = palette[hash % palette.size],
-                    note = "Excitação conceitual singular materializada no laboratório subjetivo."
+                    note = "Conceito ou sensação livre que faz parte do seu momento atual."
                 )
             }
         }

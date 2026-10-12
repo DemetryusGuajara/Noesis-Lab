@@ -8,7 +8,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,7 +25,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -95,10 +94,10 @@ fun ArchitecturalMapScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("architectural_map_screen")
     ) {
-        // Header Card
+        // Header Card with Intuitive Explanation
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -112,31 +111,40 @@ fun ArchitecturalMapScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ARCHITECTURAL PHENOMENOLOGY",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        text = strings.archHeaderTitle,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Icon(
                         imageVector = Icons.Default.AccountBalance,
                         contentDescription = strings.archHeaderTitle,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = strings.archHeaderTitle,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = strings.archHeaderSubtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = strings.archQuickTip,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = !isIsometricHorizonMode,
@@ -156,7 +164,7 @@ fun ArchitecturalMapScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Interactive Architectural Map Canvas
+        // Interactive Mental Spaces Map Canvas
         val surfaceColor = MaterialTheme.colorScheme.surface
         val outlineColor = MaterialTheme.colorScheme.outline
         val primaryColor = MaterialTheme.colorScheme.primary
@@ -183,7 +191,7 @@ fun ArchitecturalMapScreen(
                             val nearest = uiState.zones.minByOrNull { z ->
                                 hypot(z.mapX * w - tapOffset.x, z.mapY * h - tapOffset.y)
                             }
-                            if (nearest != null && hypot(nearest.mapX * w - tapOffset.x, nearest.mapY * h - tapOffset.y) < 120f) {
+                            if (nearest != null && hypot(nearest.mapX * w - tapOffset.x, nearest.mapY * h - tapOffset.y) < 130f) {
                                 onSelectZone(nearest)
                             }
                         }
@@ -192,12 +200,11 @@ fun ArchitecturalMapScreen(
                 val w = size.width
                 val h = size.height
 
-                // Architectural Blueprint Grid / Horizon Lines
-                val step = 36.dp.toPx()
+                val step = 38.dp.toPx()
                 var gx = step
                 while (gx < w) {
                     drawLine(
-                        color = outlineColor.copy(alpha = 0.28f),
+                        color = outlineColor.copy(alpha = 0.25f),
                         start = Offset(gx, 0f),
                         end = Offset(gx, h),
                         strokeWidth = 1f
@@ -207,7 +214,7 @@ fun ArchitecturalMapScreen(
                 var gy = step
                 while (gy < h) {
                     drawLine(
-                        color = outlineColor.copy(alpha = 0.28f),
+                        color = outlineColor.copy(alpha = 0.25f),
                         start = Offset(0f, gy),
                         end = Offset(w, gy),
                         strokeWidth = 1f
@@ -217,7 +224,6 @@ fun ArchitecturalMapScreen(
 
                 val zoneMap = uiState.zones.associateBy { it.zoneId }
 
-                // Draw Corridors / Bridges between connected architectural chambers
                 uiState.zones.forEach { zone ->
                     val start = Offset(zone.mapX * w, zone.mapY * h)
                     val targets = zone.connectedZonesCsv.split(",").map { it.trim() }
@@ -226,7 +232,7 @@ fun ArchitecturalMapScreen(
                         if (targetZone != null) {
                             val end = Offset(targetZone.mapX * w, targetZone.mapY * h)
                             drawLine(
-                                color = primaryColor.copy(alpha = 0.38f),
+                                color = primaryColor.copy(alpha = 0.35f),
                                 start = start,
                                 end = end,
                                 strokeWidth = 2.dp.toPx(),
@@ -236,19 +242,31 @@ fun ArchitecturalMapScreen(
                     }
                 }
 
-                // Draw each Architectural Chamber with distinct sacred/structural geometry
                 uiState.zones.forEach { zone ->
                     val center = Offset(zone.mapX * w, zone.mapY * h)
                     val isSelected = zone.zoneId == selectedZone?.zoneId
-                    val chamberRadius = (24f + zone.luminosity * 14f).dp.toPx()
+                    val chamberRadius = (22f + zone.luminosity * 14f).dp.toPx()
                     val strokeColor = when {
                         isSelected -> primaryColor
-                        zone.tensionIndex > 0.7f -> Color(0xFFD14949)
+                        zone.tensionIndex > 0.65f -> Color(0xFFD14949)
                         zone.elevationLevel > 0.4f -> tertiaryColor
                         else -> secondaryColor
                     }
 
-                    // Horizon shadow / elevation projection in Isometric mode
+                    // Warm glow reflecting room clarity (luminosity)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                strokeColor.copy(alpha = zone.luminosity * 0.35f),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = chamberRadius * 1.6f
+                        ),
+                        radius = chamberRadius * 1.6f,
+                        center = center
+                    )
+
                     if (isIsometricHorizonMode) {
                         val elevationOffset = -zone.elevationLevel * 22.dp.toPx()
                         drawLine(
@@ -259,14 +277,12 @@ fun ArchitecturalMapScreen(
                         )
                     }
 
-                    // Draw structural archetype shape
                     when (zone.geometryType) {
                         "LABYRINTH" -> {
-                            // Concentric octagonal/square fortress walls (Crypt of Contraction)
                             for (r in 1..3) {
                                 val side = chamberRadius * (0.55f * r)
                                 drawRect(
-                                    color = strokeColor.copy(alpha = 0.35f + (if (isSelected) 0.4f else 0f)),
+                                    color = strokeColor.copy(alpha = 0.4f + (if (isSelected) 0.4f else 0f)),
                                     topLeft = Offset(center.x - side / 2f, center.y - side / 2f),
                                     size = Size(side, side),
                                     style = Stroke(width = if (isSelected && r == 3) 2.5.dp.toPx() else 1.5.dp.toPx())
@@ -274,7 +290,6 @@ fun ArchitecturalMapScreen(
                             }
                         }
                         "ATRIUM" -> {
-                            // Expanding warm vaulted arches
                             for (r in 1..3) {
                                 drawCircle(
                                     color = strokeColor.copy(alpha = 0.3f * r),
@@ -285,7 +300,6 @@ fun ArchitecturalMapScreen(
                             }
                         }
                         "TOWER", "LATTICE" -> {
-                            // Hexagonal geodesic sacred structure
                             val hexPath = Path()
                             for (i in 0..5) {
                                 val angle = (i * 60.0 + (if (isSelected) archPhase * 15.0 else 0.0)) * PI / 180.0
@@ -301,7 +315,6 @@ fun ArchitecturalMapScreen(
                             )
                         }
                         "MONOLITH" -> {
-                            // Triangular vector spire
                             val tri = Path().apply {
                                 moveTo(center.x, center.y - chamberRadius)
                                 lineTo(center.x - chamberRadius * 0.9f, center.y + chamberRadius * 0.8f)
@@ -315,12 +328,6 @@ fun ArchitecturalMapScreen(
                             )
                         }
                         else -> {
-                            // Spiral / Sunyata Open Garden
-                            drawCircle(
-                                color = strokeColor.copy(alpha = 0.22f),
-                                radius = chamberRadius * 1.15f,
-                                center = center
-                            )
                             drawCircle(
                                 color = strokeColor,
                                 radius = chamberRadius,
@@ -333,7 +340,6 @@ fun ArchitecturalMapScreen(
                         }
                     }
 
-                    // Chamber Label
                     val labelLayout = textMeasurer.measure(
                         text = zone.customTitle,
                         style = TextStyle(
@@ -355,7 +361,7 @@ fun ArchitecturalMapScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Selected Architectural Chamber Detail & Morphing Controls
+        // Selected Room Inspector with Plain-Language Sliders
         selectedZone?.let { zone ->
             Card(
                 modifier = Modifier
@@ -366,41 +372,16 @@ fun ArchitecturalMapScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "CHAMBER · ${zone.geometryType} · ${zone.resonantHz.toInt()} Hz",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = zone.customTitle,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = "Elev: ${if (zone.elevationLevel >= 0) "+" else ""}${"%.1f".format(zone.elevationLevel)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = zone.customTitle,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = zone.conceptDomain,
                         style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = MaterialTheme.colorScheme.primary
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -410,13 +391,18 @@ fun ArchitecturalMapScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Luminosity / Phenomenological Openness Slider
+                    // 1. Openness & Clarity Slider
                     Text(
                         text = "${strings.archHorizonDepth}: ${(zone.luminosity * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = strings.archHorizonDepthHelp,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Slider(
                         value = zone.luminosity,
@@ -426,11 +412,18 @@ fun ArchitecturalMapScreen(
                         valueRange = 0.15f..1.0f
                     )
 
-                    // Structural Tectonic Tension Slider
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 2. Pressure / Tightness Slider
                     Text(
                         text = "${strings.archStructuralTension}: ${(zone.tensionIndex * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = strings.archStructuralTensionHelp,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Slider(
                         value = zone.tensionIndex,
@@ -440,7 +433,7 @@ fun ArchitecturalMapScreen(
                         valueRange = 0.05f..0.95f
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Button(
                         onClick = { onMeditateInZone(zone) },
                         modifier = Modifier

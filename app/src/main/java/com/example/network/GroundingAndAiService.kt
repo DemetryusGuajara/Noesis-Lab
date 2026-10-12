@@ -14,7 +14,7 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 data class GroundingSource(
-    val sourceType: String, // "WIKIPEDIA" or "ACADEMIC"
+    val sourceType: String,
     val title: String,
     val subtitleOrAuthors: String,
     val snippet: String,
@@ -63,9 +63,8 @@ class GroundingAndAiService {
         .build()
 
     /**
-     * Fetches real theoretical context from Wikipedia REST API (in the active app language)
-     * and academic literature from Crossref Works API (Google Scholar / Academic index)
-     * using the device's internet connection.
+     * Fetches theoretical context silently in the background from Wikipedia and Crossref
+     * so the AI can weave rich insights without exposing academic citations or jargon to the user.
      */
     suspend fun fetchLiveGrounding(
         queryConcepts: List<String>,
@@ -84,7 +83,7 @@ class GroundingAndAiService {
             val combinedSearch = if (searchTerms.isNotEmpty()) {
                 searchTerms.joinToString(" ")
             } else {
-                "Consciousness Phenomenology Neuroscience"
+                "Emotions Perception Creativity"
             }
 
             val wikiDeferred = async { fetchWikipediaArticles(combinedSearch, wikiLang) }
@@ -100,10 +99,10 @@ class GroundingAndAiService {
     private fun fetchWikipediaArticles(query: String, lang: String): List<GroundingSource> {
         return runCatching {
             val encoded = URLEncoder.encode(query, "UTF-8")
-            val url = "https://$lang.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&utf8=&format=json&srlimit=3"
+            val url = "https://$lang.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&utf8=&format=json&srlimit=2"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "NoesisLab/1.0 (ConsciousSimulation; Android)")
+                .header("User-Agent", "NoesisLab/1.0 (Android)")
                 .get()
                 .build()
 
@@ -124,49 +123,30 @@ class GroundingAndAiService {
                         .replace("&amp;", "&")
                         .trim()
                     if (title.isNotBlank()) {
-                        val articleUrl = "https://$lang.wikipedia.org/wiki/${URLEncoder.encode(title.replace(" ", "_"), "UTF-8")}"
                         results.add(
                             GroundingSource(
                                 sourceType = "WIKIPEDIA",
                                 title = title,
-                                subtitleOrAuthors = "Wikipedia ($lang)",
-                                snippet = rawSnippet.ifBlank { "Conceito enciclopédico indexado." },
-                                url = articleUrl
+                                subtitleOrAuthors = "Wikipedia",
+                                snippet = rawSnippet,
+                                url = ""
                             )
                         )
                     }
                 }
                 results
             }
-        }.getOrElse { emptyList() }.ifEmpty {
-            // Fallback theoretical grounding if device is temporarily offline
-            listOf(
-                GroundingSource(
-                    sourceType = "WIKIPEDIA",
-                    title = "Fenomenologia da Percepção (Maurice Merleau-Ponty)",
-                    subtitleOrAuthors = "Base Teórica Enciclopédica",
-                    snippet = "A percepção não é uma representação passiva, mas um campo relacional corporificado onde sujeito e mundo se co-constituem.",
-                    url = "https://pt.wikipedia.org/wiki/Maurice_Merleau-Ponty"
-                ),
-                GroundingSource(
-                    sourceType = "WIKIPEDIA",
-                    title = "Śūnyatā & Originação Dependente (Nagarjuna)",
-                    subtitleOrAuthors = "Filosofia da Mente Madhyamaka",
-                    snippet = "Os fenômenos mentais emergem em rede relacional sem substância isolada (svabhāva), permitindo mutação contínua de estados.",
-                    url = "https://pt.wikipedia.org/wiki/Sunyata"
-                )
-            )
-        }
+        }.getOrElse { emptyList() }
     }
 
     private fun fetchAcademicWorks(query: String): List<GroundingSource> {
         return runCatching {
-            val scholarlyQuery = "$query consciousness neuroscience philosophy"
+            val scholarlyQuery = "$query psychology perception"
             val encoded = URLEncoder.encode(scholarlyQuery, "UTF-8")
-            val url = "https://api.crossref.org/works?query=$encoded&rows=3&select=DOI,title,author,published-print,abstract"
+            val url = "https://api.crossref.org/works?query=$encoded&rows=2&select=title,abstract"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "NoesisLab/1.0 (mailto:research@noesislab.org)")
+                .header("User-Agent", "NoesisLab/1.0")
                 .get()
                 .build()
 
@@ -181,66 +161,28 @@ class GroundingAndAiService {
                 for (i in 0 until items.length()) {
                     val obj = items.getJSONObject(i)
                     val titleArr = obj.optJSONArray("title")
-                    val title = if (titleArr != null && titleArr.length() > 0) titleArr.optString(0) else "Academic Paper"
-                    val doi = obj.optString("DOI", "")
-
-                    val authorsArr = obj.optJSONArray("author")
-                    val authorsList = mutableListOf<String>()
-                    if (authorsArr != null) {
-                        for (a in 0 until minOf(authorsArr.length(), 3)) {
-                            val au = authorsArr.getJSONObject(a)
-                            val family = au.optString("family", "")
-                            if (family.isNotBlank()) authorsList.add(family)
-                        }
-                    }
-                    val authorText = if (authorsList.isNotEmpty()) authorsList.joinToString(", ") else "Academic Literature"
-
+                    val title = if (titleArr != null && titleArr.length() > 0) titleArr.optString(0) else ""
                     val rawAbstract = obj.optString("abstract", "")
                         .replace(Regex("<[^>]*>"), "")
                         .trim()
-                        .take(220)
-
-                    list.add(
-                        GroundingSource(
-                            sourceType = "ACADEMIC",
-                            title = title,
-                            subtitleOrAuthors = authorText,
-                            snippet = if (rawAbstract.isNotBlank()) "$rawAbstract..." else "DOI: $doi — Indexado em literatura científica revisada por pares.",
-                            url = if (doi.isNotBlank()) "https://doi.org/$doi" else "https://scholar.google.com"
+                        .take(180)
+                    if (title.isNotBlank()) {
+                        list.add(
+                            GroundingSource(
+                                sourceType = "ACADEMIC",
+                                title = title,
+                                subtitleOrAuthors = "",
+                                snippet = rawAbstract,
+                                url = ""
+                            )
                         )
-                    )
+                    }
                 }
                 list
             }
-        }.getOrElse { emptyList() }.ifEmpty {
-            listOf(
-                GroundingSource(
-                    sourceType = "ACADEMIC",
-                    title = "The Free-Energy Principle: A Unified Brain Theory?",
-                    subtitleOrAuthors = "Friston, K. (Nature Reviews Neuroscience)",
-                    snippet = "Modela o cérebro como um motor de inferência ativa que minimiza a entropia perceptiva e a surpresa variacional.",
-                    url = "https://doi.org/10.1038/nrn2787"
-                ),
-                GroundingSource(
-                    sourceType = "ACADEMIC",
-                    title = "Neurophenomenology: A Methodological Remedy for the Hard Problem",
-                    subtitleOrAuthors = "Varela, F. J. (Journal of Consciousness Studies)",
-                    snippet = "Articula a experiência vivida em primeira pessoa com a dinâmica de redes neurais não-lineares e atratores.",
-                    url = "https://scholar.google.com"
-                )
-            )
-        }
+        }.getOrElse { emptyList() }
     }
 
-    /**
-     * Strict OpenAI-Compatible BYOK Provider Verifier:
-     * 1. Normalizes baseUrl (accepts with or without /v1)
-     * 2. Calls GET {baseUrl}/models with Bearer token to parse available models for the user's account
-     * 3. Sends an actual lightweight POST {baseUrl}/chat/completions ping ("oi") with strict minimal
-     *    OpenAI parameters (`model`, `messages`, `max_tokens`) to each candidate model.
-     * 4. Filters out any model that returns 401, 403, 404, 429 (rate limit), 500+, or empty response,
-     *    returning ONLY models that actually responded 200 OK.
-     */
     suspend fun verifyProviderAndPingModels(
         rawBaseUrl: String,
         apiKey: String,
@@ -302,7 +244,6 @@ class GroundingAndAiService {
             )
         }
 
-        // Prioritize up to 12 candidate chat models so verification completes swiftly without hanging
         val candidatesToPing = discoveredIds.take(12)
 
         val pingResults = coroutineScope {
@@ -326,15 +267,11 @@ class GroundingAndAiService {
             verifiedResponsiveModels = verified,
             pingDetails = pingResults,
             errorMessage = if (verified.isEmpty()) {
-                "Foram encontrados ${discoveredIds.size} modelos em /models, mas nenhum respondeu 200 OK ao ping (erros 403/404/429 filtrados)."
+                "Foram encontrados ${discoveredIds.size} modelos em /models, mas nenhum respondeu 200 OK ao ping."
             } else null
         )
     }
 
-    /**
-     * Sends a strictly standard, minimal OpenAI-compatible POST /chat/completions request
-     * with NO eccentric parameters (only `model`, `messages`, `max_tokens`).
-     */
     private fun pingSingleModelStrictOpenAi(
         cleanBaseUrl: String,
         apiKey: String,
@@ -366,7 +303,6 @@ class GroundingAndAiService {
             pingClient.newCall(reqBuilder.build()).execute().use { resp ->
                 val elapsed = System.currentTimeMillis() - start
                 if (!resp.isSuccessful) {
-                    // Strictly reject 401, 403, 404, 429, 500, etc.
                     return ModelPingResult(
                         modelId = modelId,
                         respondedOk = false,
@@ -403,10 +339,11 @@ class GroundingAndAiService {
     }
 
     /**
-     * Orchestrates the conscious simulation response using live Wikipedia + Academic grounding,
-     * particle field physics, and biofeedback state. Uses the active BYOK OpenAI-compatible provider
-     * if configured, or seamlessly falls back to the built-in phenomenological synthesis engine
-     * so the app works immediately out of the box.
+     * Orchestrates an accessible, warm, deeply insightful reading that combines:
+     * 1. The visual map of spheres from Tab 1 (emotions + abstract concepts + their weights & distances)
+     * 2. The user's current body/feeling sliders
+     * 3. The optional text written in Tab 3
+     * Background research from Wikipedia & academic literature informs the depth silently, NEVER shown raw to the user.
      */
     suspend fun orchestrateConsciousSimulation(
         userPrompt: String,
@@ -422,53 +359,38 @@ class GroundingAndAiService {
         activeApiKey: String?,
         activeModelId: String?
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
+        // Silent background enrichment (never displayed in UI)
         val grounding = fetchLiveGrounding(
             queryConcepts = conceptNames,
             userPrompt = userPrompt,
             languageCode = languageCode
         )
 
-        val wikiContext = grounding.wikiSources.joinToString("\n") {
-            "- [Wikipedia] ${it.title}: ${it.snippet}"
-        }
-        val academicContext = grounding.academicSources.joinToString("\n") {
-            "- [Academic/Crossref] ${it.title} (${it.subtitleOrAuthors}): ${it.snippet}"
-        }
-
-        val biofeedbackDescriptor = buildString {
-            append("Arousal=${(arousal * 100).toInt()}%, ")
-            append("AffectiveValence=${(valence * 100).toInt()}%, ")
-            append("MeditativeFocus=${(focus * 100).toInt()}%")
-        }
+        val silentBackgroundNotes = (grounding.wikiSources + grounding.academicSources)
+            .joinToString("\n") { "- ${it.title}: ${it.snippet}" }
 
         val systemPrompt = """
-            Você é o Engenheiro de Realidades Mentais do Noesis Lab.
+            Você é um guia criativo e acolhedor de autoconhecimento no Noesis Lab.
             $languageInstruction
             
-            Sua tarefa é modelar uma 'simulação consciente' viva onde conceitos e emoções se comportam como partículas e estruturas arquitetônicas num campo de percepção.
-            Use os dados teóricos reais coletados agora da Wikipédia e da literatura acadêmica abaixo para fundamentar a resposta em neurociência (Friston, Varela, Damasio), física teórica (campos quânticos, termodinâmica, Rovelli) e filosofia da mente (Deleuze, Merleau-Ponty, Nagarjuna, Spinoza).
-            
-            Adapte o ritmo das frases, as metáforas e as sugestões sensoriais ao Biofeedback atual do usuário ($biofeedbackDescriptor), induzindo mudanças perceptivas e cognitivas sentidas enquanto ele lê.
-            Ao final, inclua uma seção separada por "---SOMATIC---" com um protocolo curto e direto de experimentação somática/perceptiva imediata.
+            REGRAS IMPORTANTES DE ESTILO:
+            1. Seja claro, humano, envolvente e acessível para qualquer pessoa. PROIBIDO usar jargões acadêmicos difíceis (não cite nomes de filósofos, não use termos como 'autopoiético', 'tectônica psíquica', 'svabhava', 'inferência bayesiana' ou citações da Wikipédia).
+            2. A sua resposta deve integrar a INTERSEÇÃO entre:
+               - O desenho que o usuário montou na Aba 1 (as esferas de emoções e conceitos ativos: $particlesSummary)
+               - O ritmo interno atual do usuário (Ritmo=${(arousal * 100).toInt()}%, Abertura=${(valence * 100).toInt()}%, Foco=${(focus * 100).toInt()}%)
+               - O que ele escreveu na caixa de texto.
+            3. Use as referências silenciosas de bastidores apenas como inspiração invisível para criar metáforas bonitas, simples e reveladoras sobre o estado atual da pessoa.
+            4. Ao final, separe com "---SOMATIC---" um exercício prático e gostoso de 30 segundos (respiração, visualização de cor ou percepção corporal) para a pessoa experimentar agora.
         """.trimIndent()
 
         val userMessage = """
-            Estado do Campo de Partículas: $particlesSummary
-            Biofeedback do Usuário: $biofeedbackDescriptor
-            
-            Fontes da Wikipédia em tempo real:
-            $wikiContext
-            
-            Fontes Acadêmicas em tempo real:
-            $academicContext
-            
-            Indagação / Experimento do Usuário:
-            $userPrompt
+            Esferas desenhadas pelo usuário na Aba 1: $particlesSummary
+            Contexto ou pergunta escrita pelo usuário: $userPrompt
+            (Notas silenciosas de bastidores para inspiração: $silentBackgroundNotes)
         """.trimIndent()
 
         if (!activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()) {
             val cleanBase = normalizeOpenAiBaseUrl(activeBaseUrl)
-            // Strict OpenAI-compatible payload: only model, messages, temperature
             val payload = JSONObject().apply {
                 put("model", activeModelId)
                 put("messages", JSONArray().apply {
@@ -518,14 +440,12 @@ class GroundingAndAiService {
             }
         }
 
-        // Built-in Theoretical Orchestrator combining the live Wikipedia & Academic grounding with Biofeedback
-        val synthesized = synthesizeGroundedNarrativeLocally(
+        val synthesized = synthesizeAccessibleNarrativeLocally(
             userPrompt = userPrompt,
             conceptNames = conceptNames,
             arousal = arousal,
             valence = valence,
             focus = focus,
-            grounding = grounding,
             languageCode = languageCode
         )
         val somatic = buildLocalizedSomaticShift(languageCode, arousal, valence, conceptNames)
@@ -533,77 +453,56 @@ class GroundingAndAiService {
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
-            providerLabel = "Noesis Phenomenological Engine + Live Web Grounding",
+            providerLabel = "Noesis Creative Engine",
             grounding = grounding
         )
     }
 
-    private fun synthesizeGroundedNarrativeLocally(
+    private fun synthesizeAccessibleNarrativeLocally(
         userPrompt: String,
         conceptNames: List<String>,
         arousal: Float,
         valence: Float,
         focus: Float,
-        grounding: GroundingBundle,
         languageCode: String
     ): String {
-        val conceptsText = if (conceptNames.isNotEmpty()) conceptNames.joinToString(", ") else "Consciência, Tempo, Desejo"
-        val topWiki = grounding.wikiSources.firstOrNull()
-        val topAcademic = grounding.academicSources.firstOrNull()
+        val conceptsText = if (conceptNames.isNotEmpty()) conceptNames.joinToString(", ") else "Desejo, Medo, Tempo"
+        val firstConcept = conceptNames.firstOrNull() ?: "Desejo"
+        val secondConcept = conceptNames.getOrNull(1) ?: "Tempo"
 
         return when (languageCode.lowercase()) {
             "en" -> """
-                ### I. Field Dynamics & Particle Behavior ($conceptsText)
-                In your perceptual field right now, **$conceptsText** do not behave as static nouns—they act as **interacting excitations in a non-linear manifold**. As your current autonomic arousal sits at **${(arousal * 100).toInt()}%** with a meditative focus of **${(focus * 100).toInt()}%**, the metric space between these concepts warps:
+                ### What Your Mix of Ideas Reveals ($conceptsText)
+                Looking at the canvas you shaped in Tab 1 alongside what you shared (*"$userPrompt"*), your mind right now is weaving together **$conceptsText**.
                 
-                - **Deleuzian Rhizomatics & Attractors:** Rather than following linear cause-and-effect, your inquiry (*"$userPrompt"*) generates a strange attractor. High-charge concepts pull peripheral memories into orbital resonance, while opposing valences create standing interference waves.
-                - **Nagarjuna's Dependent Origination (*Pratītyasamutpāda*):** Notice how none of these emotional particles possess independent self-nature (*svabhāva*). Remove the observer's boundary, and fear or domination immediately loses its gravitational mass, dissolving into relational openness.
-                
-                ### II. Theoretical & Neuroscientific Grounding
-                - **Encyclopedic Synthesis (${topWiki?.title ?: "Phenomenology"}):** ${topWiki?.snippet ?: "Perceptual space is actively constituted through embodied motor intentionality."}
-                - **Scientific Literature (${topAcademic?.title ?: "Active Inference"} — ${topAcademic?.subtitleOrAuthors ?: "Neuroscience"}):** Under Karl Friston's Free-Energy Principle and Varela's neurophenomenology, what you feel as internal tension is **precision-weighted prediction error** vibrating across cortical hierarchies.
-                
-                ### III. Architectural Mutation
-                As you read these words, the mental chamber shifts from a closed defensive labyrinth into an open **Merleau-Pontian perceptual horizon**, allowing the energy of the collision to reorganize into lucid structural coherence.
+                Notice how **$firstConcept** and **$secondConcept** aren't isolated—they are pulling on each other like colors blending in water:
+                - **The Conversation Between Your Spheres:** When you place concepts like these side by side, one acts as an anchor while the other acts as a spark of curiosity. Instead of fighting what feels uncertain, your mind is trying to build a bridge between them.
+                - **Your Current Rhythm (${(arousal * 100).toInt()}% Pace · ${(valence * 100).toInt()}% Openness):** Because your energy is at ${(arousal * 100).toInt()}%, you don't need to force an immediate answer. Give yourself permission to treat this state like an artist testing colors on a canvas—every concept you added has a valid reason to be here today.
             """.trimIndent()
 
             "es" -> """
-                ### I. Dinámica de Campo y Comportamiento de Partículas ($conceptsText)
-                En tu campo perceptivo actual, **$conceptsText** no operan como entidades fijas, sino como **excitaciones acopladas en una variedad topológica viva**. Con tu activación autonómica al **${(arousal * 100).toInt()}%** y una inmersión meditativa del **${(focus * 100).toInt()}%**, la geometría interna se curva:
+                ### Lo que Revela tu Mezcla Actual ($conceptsText)
+                Al unir el mapa de esferas que armaste en la Pestaña 1 con tu reflexión (*"$userPrompt"*), vemos cómo **$conceptsText** están dialogando dentro de ti en este momento.
                 
-                - **Rizoma y Atractores (Deleuze):** Tu exploración (*"$userPrompt"*) inaugura un campo de intensidades donde cada emoción emite filamentos hacia las demás, transformando la fricción psíquica en potencia creativa (*conatus*).
-                - **Vacuidad Relacional (Nagarjuna):** Ninguna partícula mental existe por sí misma (*svabhāva*). Al observar cómo el Miedo o el Deseo dependen mutuamente del horizonte temporal, su rigidez se vuelve translúcida.
-                
-                ### II. Fundamentación Teórica en Tiempo Real
-                - **Síntesis Wikipedia (${topWiki?.title ?: "Fenomenología"}):** ${topWiki?.snippet ?: "El cuerpo vivido configura la curvatura del espacio percibido."}
-                - **Literatura Científica (${topAcademic?.title ?: "Inferencia Activa"} — ${topAcademic?.subtitleOrAuthors ?: "Neurociencia"}):** Desde la neurociencia predictiva, el dilema experimentado corresponde a una actualización de creencias bayesianas encarnadas.
+                - **El Encuentro entre $firstConcept y $secondConcept:** Ninguna de estas ideas está sola. Cuando se acercan en tu espacio mental, lo que parecía una duda o tensión se convierte en terreno fértil para mirar tu momento desde otro ángulo.
+                - **Tu Clima Interior (${(arousal * 100).toInt()}% Ritmo · ${(valence * 100).toInt()}% Apertura):** No hace falta resolver todo de golpe; observa cómo cada esfera aporta un matiz distinto a tu día.
             """.trimIndent()
 
             "fr" -> """
-                ### I. Dynamique du Champ et Comportement des Particules ($conceptsText)
-                Dans votre champ perceptif actuel, **$conceptsText** agissent comme des **oscillateurs couplés au sein d'une variété topologique vivante**. Avec une activation autonomique de **${(arousal * 100).toInt()}%** et une profondeur de focus de **${(focus * 100).toInt()}%**, l'espace intérieur se plie :
+                ### Ce que Révèle Votre Mélange ($conceptsText)
+                En reliant votre carte de sphères (Onglet 1) à votre réflexion (*"$userPrompt"*), votre esprit fait dialoguer **$conceptsText**.
                 
-                - **Flux Rhizomatiques (Deleuze) :** Votre questionnement (*"$userPrompt"*) crée un attracteur étrange où les affects se composent et bifurquent.
-                - **Vacuité Relationnelle (Nagarjuna / Śūnyatā) :** Aucune particule émotionnelle ne possède d'existence intrinsèque isolée (*svabhāva*) ; chacune émerge par co-production dépendante.
-                
-                ### II. Ancrage Théorique en Direct
-                - **Synthèse Wikipédia (${topWiki?.title ?: "Phénoménologie"}) :** ${topWiki?.snippet ?: "La perception est une co-naissance incarnée entre le sujet et le monde."}
-                - **Littérature Scientifique (${topAcademic?.title ?: "Inférence Active"} — ${topAcademic?.subtitleOrAuthors ?: "Neurosciences"}) :** L'architecture neuronale ajuste sa précision synaptique pour transformer l'entropie affective en clarté structurelle.
+                - **L'Échange entre $firstConcept et $secondConcept :** Ces deux éléments s'influencent mutuellement comme deux notes d'un même accord. Ce qui semblait opposé devient une nuance créative.
+                - **Votre Rythme Actuel (${(arousal * 100).toInt()}% Rythme · ${(valence * 100).toInt()}% Ouverture) :** Laissez ces idées respirer ensemble sans chercher à tout figer immédiatement.
             """.trimIndent()
 
             else -> """
-                ### I. Dinâmica do Campo & Comportamento de Partículas ($conceptsText)
-                No seu campo de percepção neste instante, **$conceptsText** não se comportam como conceitos estáticos, mas como **excitações acopladas em uma variedade topológica viva**. Com sua ativação autonômica calibrada em **${(arousal * 100).toInt()}%** e profundidade de foco em **${(focus * 100).toInt()}%**, o espaço-tempo subjetivo dobra-se da seguinte forma:
+                ### O Que o Seu Desenho de Estado Revela ($conceptsText)
+                Ao juntar o mapa de esferas que você montou na Aba 1 com o que você trouxe agora (*"$userPrompt"*), fica claro que o seu momento atual nasce do encontro entre **$conceptsText**.
                 
-                - **Máquinas Desejantes e Rizoma (Deleuze & Guattari):** Sua indagação (*"$userPrompt"*) atua como um vetor de desterritorialização. Em vez de um conflito binário rígido, as partículas entram em ressonância harmônica, convertendo massa semântica densa em linhas de fuga criativas.
-                - **Originação Dependente e Śūnyatā (Nagarjuna):** Ao inspecionar o núcleo de cada partícula, percebe-se que nenhuma possui natureza própria isolada (*svabhāva*). A tensão só persiste enquanto a fronteira da **Identidade** tenta congelar o fluxo relacional.
-                
-                ### II. Fundamentação Teórica & Neurocientífica ao Vivo
-                - **Síntese Enciclopédica (${topWiki?.title ?: "Fenomenologia da Percepção"}):** ${topWiki?.snippet ?: "Em Merleau-Ponty, o corpo próprio é a matriz geométrica de todo espaço vivido e intencionalidade."}
-                - **Literatura Acadêmica (${topAcademic?.title ?: "Inferência Ativa e Energia Livre"} — ${topAcademic?.subtitleOrAuthors ?: "Neurociência Cognitiva"}):** Sob o Princípio da Energia Livre (Friston) e a Neurofenomenologia (Varela), a colisão entre essas ideias representa um ajuste de precisão preditiva no córtex interoceptivo.
-                
-                ### III. Mutação Arquitetônica
-                Observe como as paredes mentais ao redor desse tema deixam de ser monolitos opacos e assumem a geometria de um pórtico permeável: a carga antes represada agora circula como potência de agir (*conatus*).
+                Repare em como **$firstConcept** e **$secondConcept** conversam entre si quando estão próximos:
+                - **A Mistura das Suas Esferas:** Muitas vezes achamos que sentimos apenas uma coisa por vez, mas o seu mapa mostra uma combinação rica. Enquanto **$firstConcept** puxa sua atenção para o que importa, **$secondConcept** dá o tom e a cor de fundo da sua percepção hoje.
+                - **Seu Clima Interno (${(arousal * 100).toInt()}% de Ritmo · ${(valence * 100).toInt()}% de Abertura):** Com essa configuração, o segredo não é tentar apagar nenhuma dessas esferas, mas deixá-las conviver no mesmo espaço com mais leveza — como notas diferentes que, juntas, formam um acorde interessante.
             """.trimIndent()
         }
     }
@@ -614,19 +513,19 @@ class GroundingAndAiService {
         valence: Float,
         concepts: List<String>
     ): String {
-        val primaryConcept = concepts.firstOrNull() ?: "o conceito central"
+        val primaryConcept = concepts.firstOrNull() ?: "essa ideia central"
         return when (languageCode.lowercase()) {
-            "en" -> if (arousal > 0.65f) {
-                "Soften the muscles behind your eyes and widen your peripheral vision beyond the edges of the screen. As you exhale slowly for 6 seconds, visualize the high-frequency oscillation of '$primaryConcept' expanding into a cool, wide horizon across your chest."
+            "en" -> if (arousal > 0.60f) {
+                "Take a slow breath in for 4 seconds, and exhale for 6 seconds while relaxing your shoulders. Picture '$primaryConcept' softening from a tight knot into a warm, spacious glow in the center of your chest."
             } else {
-                "Notice the subtle weight of your hands holding the device. Imagine a warm golden-terracotta filament connecting the center of your sternum to the '$primaryConcept' particle, translating abstract thought into quiet bodily presence."
+                "Feel the weight of your hands holding the phone and listen to the chord playing in the background. Imagine '$primaryConcept' floating gently with plenty of room around it, giving you clarity for your next step."
             }
-            "es" -> "Relaja el espacio entre tus sienes y amplía tu visión periférica. Al exhalar, siente cómo la densidad gravitacional de '$primaryConcept' se transforma de un punto fijo en una onda cálida y espaciosa en el centro del pecho."
-            "fr" -> "Relâchez la tension derrière vos yeux et élargissez votre vision périphérique. En expirant lentement, visualisez la particule '$primaryConcept' se dilater en une onde lumineuse et calme à travers votre espace thoracique."
-            else -> if (arousal > 0.65f) {
-                "Descontraia a musculatura atrás dos olhos e amplie sua visão periférica para além das bordas do aparelho. Ao expirar por 6 segundos, sinta a vibração rápida de '$primaryConcept' desacelerar para uma onda larga, morna e espaçosa no centro do tórax."
+            "es" -> "Inhala profundo y suelta el aire despacio relajando los hombros. Imagina que '$primaryConcept' deja de ser un peso en la mente y se convierte en una luz cálida y tranquila en el pecho."
+            "fr" -> "Inspirez calmement et relâchez vos épaules en expirant. Imaginez que '$primaryConcept' s'ouvre comme un espace lumineux et paisible autour de vous."
+            else -> if (arousal > 0.60f) {
+                "Solte o ar devagar pela boca durante 6 segundos e deixe os ombros descerem. Imagine que '$primaryConcept' deixa de ser um ponto apertado na cabeça e se espalha como uma onda morna, calma e espaçosa pelo peito."
             } else {
-                "Perceba a temperatura das suas mãos sustentando o aparelho e o intervalo silencioso entre duas respirações. Visualize '$primaryConcept' deixando de ser um peso abstrato na testa para se tornar uma arquitetura aberta, iluminada e habitável ao seu redor."
+                "Sinta o apoio das suas mãos segurando o celular e ouça a harmonia sonora ao fundo. Visualize '$primaryConcept' flutuando com bastante espaço ao redor, sem pressa e sem cobrança."
             }
         }
     }
@@ -636,7 +535,6 @@ class GroundingAndAiService {
         if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
             trimmed = "https://$trimmed"
         }
-        // Standard OpenAI-compatible endpoints end with /v1 (or /api/v1, /openai/v1)
         if (!trimmed.endsWith("/v1") && !trimmed.contains("/v1/")) {
             trimmed = "$trimmed/v1"
         }
