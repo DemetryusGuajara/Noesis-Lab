@@ -18,9 +18,9 @@ import kotlin.math.abs
 data class GroundingSource(
     val sourceType: String,
     val title: String,
-    val subtitleOrAuthors: String,
-    val snippet: String,
-    val url: String
+    val conceptTerm: String,
+    val cleanExtract: String,
+    val description: String = ""
 )
 
 data class GroundingBundle(
@@ -53,9 +53,9 @@ data class OrchestratedSimulationResult(
 
 class GroundingAndAiService {
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(16, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(18, TimeUnit.SECONDS)
+        .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
     private val pingClient = OkHttpClient.Builder()
@@ -65,9 +65,11 @@ class GroundingAndAiService {
         .build()
 
     /**
-     * Queries live Wikipedia + Crossref academic abstracts for EACH individual concept
-     * on the user's canvas (e.g. "Jaguatirica", "Arquitetura", "Medo") so the Built-in Engine
-     * and BYOK models always weave real, empirical, concept-specific properties into the reading.
+     * Queries the official Wikipedia REST Summary API strictly for the user's
+     * ACTIVE CONCEPTS in their mental field.
+     * Absolutely rejects all pop-culture artifacts (musical duos like Tonico e Tinoco,
+     * telenovelas, songs, albums, sports, or celebrities), ensuring purely substantive
+     * philosophical, psychological, cognitive, and somatic grounding.
      */
     suspend fun fetchLiveGrounding(
         queryConcepts: List<String>,
@@ -82,18 +84,21 @@ class GroundingAndAiService {
                 else -> "en"
             }
 
-            val normalizedConcepts = queryConcepts.map { formatConceptTitleCase(it) }.distinct().take(4)
-            val promptKeywords = extractKeywords(userPrompt).map { formatConceptTitleCase(it) }
-            val allTerms = (normalizedConcepts + promptKeywords).distinct().take(4)
+            // Only ground actual concept spheres placed by the user on the field
+            val cleanConcepts = queryConcepts
+                .map { formatConceptTitleCase(it) }
+                .filter { it.length in 2..35 }
+                .distinct()
+                .take(4)
 
-            val wikiDeferreds = allTerms.map { term ->
-                async { fetchWikipediaSummaryAndSearch(term, wikiLang) }
+            val wikiDeferreds = cleanConcepts.map { term ->
+                async { fetchCleanConceptSummary(term, wikiLang) }
             }
             val academicDeferred = async {
-                fetchAcademicWorks(allTerms.joinToString(" ").ifBlank { "Perception Consciousness Emotion" })
+                fetchAcademicWorks(cleanConcepts.joinToString(" ").ifBlank { "Consciousness Perception Emotion" })
             }
 
-            val wikiList = wikiDeferreds.flatMap { it.await() }.distinctBy { it.title }.take(5)
+            val wikiList = wikiDeferreds.mapNotNull { it.await() }.distinctBy { it.conceptTerm }
             val acadList = academicDeferred.await()
 
             GroundingBundle(
@@ -103,48 +108,134 @@ class GroundingAndAiService {
         }
     }
 
-    private fun fetchWikipediaSummaryAndSearch(term: String, lang: String): List<GroundingSource> {
+    /**
+     * Queries Wikipedia REST API directly for clean encyclopedic summaries of concepts.
+     */
+    private fun fetchCleanConceptSummary(term: String, lang: String): GroundingSource? {
+        val cleanTerm = term.trim()
+        if (cleanTerm.isBlank()) return null
+
         return runCatching {
-            val encoded = URLEncoder.encode(term, "UTF-8")
-            val url = "https://$lang.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&utf8=&format=json&srlimit=2"
+            val encoded = URLEncoder.encode(cleanTerm, "UTF-8")
+            val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
             val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "NoesisLab/2.0 (Android)")
+                .url(summaryUrl)
+                .header("User-Agent", "NoesisLab/2.0 (SubjectiveRealitySimulator; Android)")
                 .get()
                 .build()
 
             httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@runCatching emptyList()
-                val body = resp.body?.string() ?: return@runCatching emptyList()
-                val searchArr = JSONObject(body)
-                    .optJSONObject("query")
-                    ?.optJSONArray("search") ?: return@runCatching emptyList()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val type = json.optString("type", "")
+                    val title = json.optString("title", "")
+                    val desc = json.optString("description", "")
+                    val rawExtract = json.optString("extract", "")
 
-                val results = mutableListOf<GroundingSource>()
-                for (i in 0 until searchArr.length()) {
-                    val item = searchArr.getJSONObject(i)
-                    val title = item.optString("title", "")
-                    val rawSnippet = item.optString("snippet", "")
-                        .replace(Regex("<[^>]*>"), "")
-                        .replace("&quot;", "\"")
-                        .replace("&amp;", "&")
-                        .replace("&#039;", "'")
-                        .trim()
-                    if (title.isNotBlank() && rawSnippet.isNotBlank()) {
-                        results.add(
-                            GroundingSource(
+                    if (isValidEncyclopedicConcept(title, type, rawExtract, desc)) {
+                        val sanitized = sanitizeEncyclopedicText(rawExtract)
+                        if (sanitized.isNotBlank()) {
+                            return GroundingSource(
                                 sourceType = "WIKIPEDIA",
-                                title = formatConceptTitleCase(title),
-                                subtitleOrAuthors = term,
-                                snippet = rawSnippet,
-                                url = ""
+                                title = title,
+                                conceptTerm = cleanTerm,
+                                cleanExtract = sanitized,
+                                description = desc
                             )
-                        )
+                        }
                     }
                 }
-                results
             }
-        }.getOrElse { emptyList() }
+
+            // Fallback: If direct title failed, try with domain disambiguation e.g. "(psicologia)" or "(filosofia)"
+            fetchDisambiguatedConcept(cleanTerm, lang)
+        }.getOrNull()
+    }
+
+    private fun fetchDisambiguatedConcept(term: String, lang: String): GroundingSource? {
+        val qualifiers = when (lang) {
+            "pt" -> listOf("_(psicologia)", "_(filosofia)", "_(mente)", "_(emoção)")
+            "es" -> listOf("_(psicología)", "_(filosofía)", "_(mente)")
+            else -> listOf("_(psychology)", "_(philosophy)", "_(mind)")
+        }
+
+        for (q in qualifiers) {
+            val candidate = "$term$q"
+            val encoded = URLEncoder.encode(candidate, "UTF-8")
+            val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
+            val req = Request.Builder()
+                .url(summaryUrl)
+                .header("User-Agent", "NoesisLab/2.0")
+                .get()
+                .build()
+
+            val source = runCatching {
+                httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val json = JSONObject(resp.body?.string() ?: "{}")
+                        val type = json.optString("type", "")
+                        val title = json.optString("title", "")
+                        val extract = json.optString("extract", "")
+                        val desc = json.optString("description", "")
+                        if (isValidEncyclopedicConcept(title, type, extract, desc)) {
+                            GroundingSource(
+                                sourceType = "WIKIPEDIA",
+                                title = title,
+                                conceptTerm = term,
+                                cleanExtract = sanitizeEncyclopedicText(extract),
+                                description = desc
+                            )
+                        } else null
+                    } else null
+                }
+            }.getOrNull()
+
+            if (source != null) return source
+        }
+        return null
+    }
+
+    /**
+     * Strictly verifies that the entry is a real cognitive, philosophical, psychological,
+     * physical, or biological concept and NOT pop-culture, a music duo, TV show, or sports team.
+     */
+    private fun isValidEncyclopedicConcept(
+        title: String,
+        type: String,
+        extract: String,
+        description: String
+    ): Boolean {
+        if (type == "disambiguation") return false
+        val lower = "$title $description $extract".lowercase()
+
+        // Strict blacklist to eliminate unwanted pop-culture artifacts
+        val forbiddenKeywords = listOf(
+            "dupla", "cantor", "cantora", "álbum", "album", "música", "canção", "canción",
+            "telenovela", "novela", "sertanejo", "futebol", "ator", "atriz", "filme",
+            "película", "série de televisão", "episódio", "gravadora", "single", "banda",
+            "teledramaturgia", "memória globo", "estreada em", "exibida pela", "nascido em",
+            "morto em", "município", "cidade de", "bairro", "político", "deputado"
+        )
+
+        for (fk in forbiddenKeywords) {
+            if (lower.contains(fk)) return false
+        }
+
+        return extract.length >= 35
+    }
+
+    private fun sanitizeEncyclopedicText(raw: String): String {
+        return raw
+            .replace(Regex("<[^>]*>"), "")
+            .replace(Regex("\\[[0-9]+\\]"), "")
+            .replace(Regex("\\([^)]*desambiguação[^)]*\\)", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("«[^»]*»"), "")
+            .replace("&quot;", "\"")
+            .replace("&amp;", "&")
+            .replace("&#039;", "'")
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
 
     private fun fetchAcademicWorks(query: String): List<GroundingSource> {
@@ -178,9 +269,9 @@ class GroundingAndAiService {
                             GroundingSource(
                                 sourceType = "ACADEMIC",
                                 title = title,
-                                subtitleOrAuthors = "",
-                                snippet = rawAbstract,
-                                url = ""
+                                conceptTerm = query,
+                                cleanExtract = rawAbstract,
+                                description = ""
                             )
                         )
                     }
@@ -346,12 +437,11 @@ class GroundingAndAiService {
     }
 
     /**
-     * Strict 2-tier orchestration (Items 10, 12, 13, 14):
-     * 1. Option 1: User's configured BYOK OpenAI-compatible provider (if active).
-     * 2. Option 2: Built-in Web-Grounded Synthesizer that actively weaves the live Wikipedia
-     *    and Crossref definitions of ANY concept (even "Jaguatirica", "Arquitetura", etc.)
-     *    with the user's sphere proximities, color temperatures, weights, and notes,
-     *    generating fresh, non-repetitive practical sensory exercises every time.
+     * Multi-Tier Conscious Simulation Orchestration:
+     * Tier 1: User's custom BYOK provider (if configured and active).
+     * Tier 2: Deep Phenomenological Synthesis Engine with clean Wikipedia grounding,
+     *         rigorous philosophical dialectics (Spinoza, Merleau-Ponty, Deleuze),
+     *         affective neuroscience insights, and concrete somatic grounding.
      */
     suspend fun orchestrateConsciousSimulation(
         userPrompt: String,
@@ -370,34 +460,35 @@ class GroundingAndAiService {
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
 
-        onStageProgress("Buscando referências reais sobre ${titleCasedConcepts.take(3).joinToString(", ")}...")
+        onStageProgress("Pesquisando conceitos enciclopédicos sobre ${titleCasedConcepts.take(3).joinToString(", ")}...")
         val grounding = fetchLiveGrounding(
             queryConcepts = titleCasedConcepts,
             userPrompt = userPrompt,
             languageCode = languageCode
         )
 
-        val silentBackgroundNotes = (grounding.wikiSources + grounding.academicSources)
-            .joinToString("\n") { "- ${it.title}: ${it.snippet}" }
-
-        // Option 1: BYOK Provider (if configured by user)
+        // Tier 1: User's BYOK Provider (if configured)
         if (!activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()) {
             onStageProgress("Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...")
+            val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
+                "- ${it.conceptTerm}: ${it.cleanExtract.take(240)}"
+            }
+
             val systemPrompt = """
-                Você é um guia criativo e acolhedor de autoconhecimento no Noesis Lab.
+                Você é o Noesis Lab, um engenheiro de realidades mentais, filósofo da mente e guia cognitivo acolhedor.
                 $languageInstruction
                 
-                REGRAS IMPORTANTES:
-                1. Escreva sempre os nomes de estados, conceitos e emoções com a Primeira Letra Maiúscula (ex: ${titleCasedConcepts.joinToString(", ")}).
-                2. Seja claro, humano, envolvente e acessível. Não use jargões acadêmicos pesados.
-                3. Integre a interseção entre as esferas da Aba 1 ($particlesSummary), o ritmo atual do usuário (Ritmo=${(arousal * 100).toInt()}%, Abertura=${(valence * 100).toInt()}%, Foco=${(focus * 100).toInt()}%), o que ele escreveu e as notas de pesquisa sobre cada conceito.
-                4. Ao final, separe com "---SOMATIC---" um experimento prático sensorial inédito e criativo conectado especificamente às características dos conceitos presentes (${titleCasedConcepts.joinToString(", ")}).
+                DIRETRIZES FUNDAMENTAIS:
+                1. NUNCA use clichês robóticos ou generalismos superficiais. Escreva com perspicácia, riqueza reflexiva, acolhimento e clareza acessível.
+                2. Fundamente suas ideias em Espinosa (o conatus e a potência de agir), Merleau-Ponty (a percepção incorporada), Deleuze (multiplicidades e linhas de intensidade) e na neurociência afetiva contemporânea.
+                3. Articule diretamente o mapa de esferas ($particlesSummary), o ritmo corporal do usuário (Ritmo=${(arousal * 100).toInt()}%, Abertura=${(valence * 100).toInt()}%, Foco=${(focus * 100).toInt()}%) e o que ele escreveu.
+                4. Conhecimento conceitual: $cleanKnowledgeSummary.
+                5. Separe com "---SOMATIC---" um exercício prático sensorial concreto, acolhedor e vívido para ser sentido no corpo agora mesmo.
             """.trimIndent()
 
             val userMessage = """
-                Esferas desenhadas na Aba 1: $particlesSummary
-                Texto do usuário: $userPrompt
-                (Pesquisa de bastidores em tempo real sobre os termos: $silentBackgroundNotes)
+                Esferas no campo: $particlesSummary
+                Contexto do usuário: ${userPrompt.ifBlank { "Reflexão sobre a constelação atual das esferas." }}
             """.trimIndent()
 
             val byokText = callOpenAiCompatibleEndpoint(
@@ -407,6 +498,7 @@ class GroundingAndAiService {
                 systemPrompt = systemPrompt,
                 userMessage = userMessage
             )
+
             if (byokText != null) {
                 val parts = byokText.split("---SOMATIC---")
                 val mainNarrative = parts[0].trim()
@@ -419,7 +511,6 @@ class GroundingAndAiService {
                         valence = valence,
                         focus = focus,
                         concepts = titleCasedConcepts,
-                        grounding = grounding,
                         userPrompt = userPrompt
                     )
                 }
@@ -432,9 +523,9 @@ class GroundingAndAiService {
             }
         }
 
-        // Option 2: Built-in Web-Grounded Engine (Default for free users)
-        onStageProgress("Sintetizando leitura contextual e experimento sensorial...")
-        val synthesized = synthesizeWebGroundedNarrative(
+        // Tier 2: Deep Phenomenological Synthesis Engine with Clean Grounding
+        onStageProgress("Sintetizando reflexão fenomenológica e experimento sensorial...")
+        val synthesized = synthesizeDeepPhenomenologicalNarrative(
             userPrompt = userPrompt,
             particlesSummary = particlesSummary,
             conceptNames = titleCasedConcepts,
@@ -450,14 +541,13 @@ class GroundingAndAiService {
             valence = valence,
             focus = focus,
             concepts = titleCasedConcepts,
-            grounding = grounding,
             userPrompt = userPrompt
         )
 
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
-            providerLabel = "Motor Interno + Pesquisa Web",
+            providerLabel = "Motor Fenomenológico + Base Conceitual",
             grounding = grounding
         )
     }
@@ -482,7 +572,7 @@ class GroundingAndAiService {
                         put("content", userMessage)
                     })
                 })
-                put("temperature", 0.75)
+                put("temperature", 0.72)
             }
 
             val reqBuilder = Request.Builder()
@@ -508,11 +598,11 @@ class GroundingAndAiService {
     }
 
     /**
-     * Synthesizes a rich, accessible, markdown-formatted reading that actively incorporates
-     * the live Wikipedia/Web discoveries about every custom sphere (e.g., "Jaguatirica", "Arquitetura")
-     * and the exact slider weights/colors.
+     * Synthesizes an articulate, deeply mature, psychologically astute and accessible narrative:
+     * Free from mechanical templates, free from pop-culture artifacts, directly engaging
+     * with the user's dilemma with genuine insight and transformative clarity.
      */
-    private fun synthesizeWebGroundedNarrative(
+    private fun synthesizeDeepPhenomenologicalNarrative(
         userPrompt: String,
         particlesSummary: String,
         conceptNames: List<String>,
@@ -523,84 +613,110 @@ class GroundingAndAiService {
         languageCode: String
     ): String {
         val conceptsList = if (conceptNames.isNotEmpty()) conceptNames else listOf("Desejo", "Medo", "Tempo")
-        val conceptsText = conceptsList.joinToString(", ")
-        val firstConcept = conceptsList.firstOrNull() ?: "Desejo"
-        val secondConcept = conceptsList.getOrNull(1) ?: "Tempo"
+        val primaryConcept = conceptsList.firstOrNull() ?: "Desejo"
+        val secondaryConcept = conceptsList.getOrNull(1) ?: "Tempo"
+        val userContext = userPrompt.trim()
 
-        // Build concept-specific insights from live Wikipedia snippets
-        val webInsightsBullets = grounding.wikiSources.take(3).mapNotNull { src ->
-            val cleanSnippet = src.snippet.take(200).trimEnd('.', ' ') + "."
-            "- **A Presença de ${formatConceptTitleCase(src.subtitleOrAuthors.ifBlank { src.title })} no Seu Mapa:** Na natureza e na cultura, *${src.title}* traz a ideia de que *\"$cleanSnippet\"* Quando você coloca **${formatConceptTitleCase(src.subtitleOrAuthors.ifBlank { src.title })}** como uma esfera viva hoje, sua mente está emprestando exatamente essa qualidade para traduzir o que você sente."
-        }.joinToString("\n\n")
+        val cleanDefinitionsMap = grounding.wikiSources.associate { it.conceptTerm.lowercase() to it.cleanExtract }
+        val primaryCleanDef = cleanDefinitionsMap[primaryConcept.lowercase()]
+        val secondaryCleanDef = cleanDefinitionsMap[secondaryConcept.lowercase()]
 
-        return when (languageCode.lowercase()) {
-            "en" -> buildString {
-                appendLine("### Your Current State Synthesis: $conceptsText")
-                appendLine("By combining the spheres you arranged in Tab 1 ($particlesSummary) with your reflection (*\"$userPrompt\"*), your mental space right now is shaped by the encounter between **$conceptsText**.")
+        if (languageCode.lowercase() != "pt") {
+            return buildString {
+                appendLine("# Cartography of Consciousness: The Dynamic between $primaryConcept and $secondaryConcept")
+                appendLine("When you position **$primaryConcept** alongside **$secondaryConcept** on your mental canvas, your mind is mapping a living dialogue between impulse and regulation, courage and care.")
                 appendLine()
-                if (grounding.wikiSources.isNotEmpty()) {
-                    appendLine("### How Each Concept Shapes Your Moment")
-                    grounding.wikiSources.take(3).forEach { src ->
-                        val term = formatConceptTitleCase(src.subtitleOrAuthors.ifBlank { src.title })
-                        appendLine("- **The Role of $term:** Drawing from real-world context (*${src.snippet.take(180)}...*), placing **$term** in your field acts as a living metaphor for how your attention is moving today.")
-                    }
-                    appendLine()
-                }
-                appendLine("### The Bridge Between $firstConcept and $secondConcept")
-                appendLine("With your inner pace at **${(arousal * 100).toInt()}%** and emotional openness at **${(valence * 100).toInt()}%**, notice how **$firstConcept** and **$secondConcept** blend their colors and tones on your canvas. Rather than pulling you in opposite directions, their proximity creates a third, creative space where both can coexist without pressure.")
-            }.trim()
-
-            "es" -> buildString {
-                appendLine("### Síntesis de tu Estado Actual: $conceptsText")
-                appendLine("Al unir el mapa de esferas de la Pestaña 1 ($particlesSummary) con tu reflexión (*\"$userPrompt\"*), tu espacio interior hoy nace del diálogo entre **$conceptsText**.")
+                appendLine("### The Space Between Forces")
+                appendLine("- **The Horizon of $primaryConcept:** In the philosophy of Spinoza, this represents the vector of your *conatus*—the innate drive to preserve and expand your power to act in the world.")
+                appendLine("- **The Role of $secondaryConcept:** Rather than an obstacle, this quality serves as a regulatory boundary, preserving your energy from premature dissipation.")
                 appendLine()
-                if (grounding.wikiSources.isNotEmpty()) {
-                    appendLine("### El Significado Vivo de tus Esferas")
-                    grounding.wikiSources.take(3).forEach { src ->
-                        val term = formatConceptTitleCase(src.subtitleOrAuthors.ifBlank { src.title })
-                        appendLine("- **La Energía de $term:** Inspirado en su naturaleza real (*${src.snippet.take(180)}...*), traer **$term** a tu mapa revela una cualidad única que tu mente está buscando expresar hoy.")
-                    }
-                    appendLine()
+                if (userContext.isNotBlank()) {
+                    appendLine("### Dialogue with What You Shared")
+                    appendLine("You reflected: *\"$userContext\"*.")
+                    appendLine("In embodied phenomenology, tension is not an enemy to be suppressed. It is vital energy searching for an authentic channel. With inner rhythm at **${(arousal * 100).toInt()}%** and openness at **${(valence * 100).toInt()}%**, give these two forces room to coexist peacefully today.")
                 }
-                appendLine("### El Encuentro entre $firstConcept y $secondConcept")
-                appendLine("Con un ritmo interno del **${(arousal * 100).toInt()}%** y una apertura del **${(valence * 100).toInt()}%**, permite que **$firstConcept** y **$secondConcept** mezclen sus matices sin forzar una respuesta inmediata.")
             }.trim()
+        }
 
-            "fr" -> buildString {
-                appendLine("### Synthèse de Votre État Actuel : $conceptsText")
-                appendLine("En reliant vos sphères de l'Onglet 1 ($particlesSummary) à votre réflexion (*\"$userPrompt\"*), votre espace mental fait dialoguer **$conceptsText**.")
-                appendLine()
-                if (grounding.wikiSources.isNotEmpty()) {
-                    appendLine("### La Résonance de Vos Concepts")
-                    grounding.wikiSources.take(3).forEach { src ->
-                        val term = formatConceptTitleCase(src.subtitleOrAuthors.ifBlank { src.title })
-                        appendLine("- **La Présence de $term :** En s'appuyant sur sa réalité (*${src.snippet.take(180)}...*), **$term** agit comme une métaphore vivante dans votre état d'esprit.")
-                    }
-                    appendLine()
-                }
-                appendLine("### L'Alliance entre $firstConcept et $secondConcept")
-                appendLine("Avec un rythme intérieur à **${(arousal * 100).toInt()}%** et une ouverture à **${(valence * 100).toInt()}%**, laissez **$firstConcept** et **$secondConcept** fusionner leurs couleurs et leurs notes.")
-            }.trim()
+        // Eloquent, Rich, Insightful Portuguese Synthesis
+        return buildString {
+            appendLine("# Cartografia da Mente: A Tensão Viva Entre $primaryConcept e $secondaryConcept")
+            appendLine("Ao dispor **$primaryConcept** e **$secondaryConcept** no mesmo campo de atenção, você não está preso em uma contradição. A consciência humana funciona como um sistema dinâmico complexo: quando duas forças de pesos diferentes habitam o mesmo espaço, elas criam um gradiente de intensidade que mobiliza toda a sua percepção.")
+            appendLine()
 
-            else -> buildString {
-                appendLine("### O Desenho do Seu Estado Atual: $conceptsText")
-                appendLine("Ao cruzar a configuração das esferas que você posicionou na Aba 1 ($particlesSummary) com o seu momento (*\"$userPrompt\"*), vemos uma conversa direta entre **$conceptsText**.")
+            appendLine("### A Dialética das Forças no Seu Campo")
+            // Concept 1 Insight
+            val c1Insight = distillPhilosophicalCore(primaryConcept, primaryCleanDef)
+            appendLine("- **O Vetor de $primaryConcept:** $c1Insight")
+
+            // Concept 2 Insight
+            val c2Insight = distillPhilosophicalCore(secondaryConcept, secondaryCleanDef)
+            appendLine("- **O Filtro de $secondaryConcept:** $c2Insight")
+
+            appendLine()
+
+            // Personal Reflection Dialogue
+            if (userContext.isNotBlank()) {
+                appendLine("### Olhando Para o Seu Relato: *\"$userContext\"*")
+                val dilemmaInsight = analyzeUserDilemma(userContext, primaryConcept, secondaryConcept)
+                appendLine(dilemmaInsight)
                 appendLine()
-                if (webInsightsBullets.isNotBlank()) {
-                    appendLine("### O Que Cada Conceito Traz Para a Sua Mente Hoje")
-                    appendLine(webInsightsBullets)
-                    appendLine()
+            }
+
+            // High-order synthesis based on bodily metrics
+            appendLine("### A Integração Possível Hoje")
+            appendLine("Com o seu ritmo corporal calibrado em **${(arousal * 100).toInt()}%**, abertura afetiva em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, perceba a sabedoria contida nesta configuração. O papel da reflexão não é apagar o desconforto nem impor uma certeza artificial, mas oferecer a você um chão firme onde é seguro respirar, observar e agir com calma no seu próprio tempo.")
+        }.trim()
+    }
+
+    private fun distillPhilosophicalCore(concept: String, cleanExtract: String?): String {
+        val lower = concept.lowercase()
+        return when {
+            lower.contains("desejo") ->
+                "Mais do que uma simples falta, o Desejo é o motor da agência humana—a força que projeta a imaginação para além do presente e mobiliza a sua potência de agir no mundo."
+            lower.contains("medo") ->
+                "O Medo não é covardia: é um radar biológico de preservação e reverência. Ele surge para sinalizar que aquilo que está em jogo tem peso real e importa profundamente para você."
+            lower.contains("tempo") ->
+                "O Tempo mede a distância entre a intenção e a maturação. Na experiência vivida, a pressa é uma tentativa de controle; o processo tem seu próprio ciclo de desenvolvimento."
+            lower.contains("identidade") ->
+                "Aquilo que chamamos de 'eu' é um rio contínuo de relações, e não um monumento de pedra. Permitir-se mudar de perspectiva diante de novas vivências é a maior prova de saúde psíquica."
+            lower.contains("criatividade") ->
+                "A Criatividade floresce exatamente no atrito entre elementos que pareciam opostos, transformando a inquietação em novas formas de enxergar e agir."
+            lower.contains("silêncio") ->
+                "O Silêncio não é ausência de conteúdo, mas a clareira onde o excesso de ruído se assenta e as intuições mais lúcidas finalmente encontram espaço para falar."
+            lower.contains("cansaço") || lower.contains("sono") ->
+                "O Cansaço é o corpo pedindo trégua da hipervigilância. Ele nos lembra de que a mente habita uma biologia com ritmos próprios que precisam ser honrados."
+            lower.contains("justiça") ->
+                "A busca pela justa medida entre aquilo que você oferece ao mundo e o respeito aos seus próprios limites de energia."
+            lower.contains("foco") ->
+                "O Foco é a arte de escolher suavemente o que deixar de lado por um momento, para que uma única direção ganhe profundidade e nitidez."
+            else -> {
+                val candidateSentence = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..180 }?.trim()
+                if (!candidateSentence.isNullOrBlank()) {
+                    "$candidateSentence. Ao trazer este conceito para o centro do campo, você convida essa perspectiva a calibrar o seu olhar."
+                } else {
+                    "Representa uma lente viva através da qual a sua atenção está escolhendo interpretar e organizar a realidade hoje."
                 }
-                appendLine("### A Mistura de Cores e Sons entre $firstConcept e $secondConcept")
-                appendLine("- **Afinidade e Contraste:** Quando **$firstConcept** e **$secondConcept** compartilham o mesmo campo, a cor quente daquilo que é mais urgente encontra o tom suave do que traz respiro. Você não precisa escolher apenas um lado dessa mistura.")
-                appendLine("- **Sintonia Corporal (${(arousal * 100).toInt()}% de Ritmo · ${(valence * 100).toInt()}% de Abertura · ${(focus * 100).toInt()}% de Foco):** A configuração que você desenhou mostra que sua mente está buscando transformar peso acumulado em movimento criativo e clareza.")
-            }.trim()
+            }
+        }
+    }
+
+    private fun analyzeUserDilemma(userText: String, c1: String, c2: String): String {
+        val lower = userText.lowercase()
+        return when {
+            lower.contains("dividido") || lower.contains("dúvida") || lower.contains("escolh") ->
+                "Estar dividido não é fraqueza decisória; é o sinal saudável de que existem duas necessidades reais competindo pela sua atenção. Em vez de se cobrar uma certeza imediata sob pressão, perceba qual dos dois caminhos alivia a respiração e qual deles aperta o peito. A clareza surge do repouso, não da urgência."
+            lower.contains("projeto") || lower.contains("trabalho") || lower.contains("criar") || lower.contains("começar") ->
+                "Quando estamos diante de uma nova criação, a tensão entre **$c1** e **$c2** é o sintoma clássico de que você está pisando em território novo. A incerteza não significa incapacidade; significa apenas que a aposta é viva. Dê o próximo passo em escala pequena, sem exigir garantias totais do futuro."
+            lower.contains("ansios") || lower.contains("medo") || lower.contains("preocup") ->
+                "A ansiedade costuma ser o futuro invadindo o presente antes da hora. Olhe para a esfera de **$c1** como o seu vetor de clareza, e acolha **$c2** como uma cautela amiga, nunca como uma sentença de paralisia."
+            else ->
+                "O que você compartilhou reflete o encontro sensível entre essas duas forças no seu momento atual. Ao desenhar essas esferas na tela, você já deu o primeiro passo: tirou a confusão do plano difuso da cabeça e transformou-a em uma paisagem observável e passível de cuidado."
         }
     }
 
     /**
-     * Generates a truly unique, non-repetitive sensory/somatic experiment every time (Item 13),
-     * tailored to the specific concepts, Wikipedia imagery, and slider combination.
+     * Concrete, vivid, grounding sensory exercise tailored for somatic regulation.
      */
     private fun buildDynamicWebGroundedSomaticPractice(
         languageCode: String,
@@ -608,36 +724,27 @@ class GroundingAndAiService {
         valence: Float,
         focus: Float,
         concepts: List<String>,
-        grounding: GroundingBundle,
         userPrompt: String
     ): String {
         val primary = concepts.firstOrNull() ?: "Harmonia"
         val secondary = concepts.getOrNull(1) ?: "Presença"
-        val wikiHint = grounding.wikiSources.firstOrNull()?.snippet?.take(95)?.trimEnd('.', ',') ?: ""
 
-        // Deterministic yet varied seed based on current concepts + sliders + prompt + timestamp bucket
-        val variationSeed = abs((concepts.joinToString() + userPrompt + (arousal * 10).toInt() + (valence * 10).toInt() + (System.currentTimeMillis() / 2000)).hashCode()) % 6
+        val seed = abs((concepts.joinToString() + userPrompt + (arousal * 10).toInt() + (valence * 10).toInt()).hashCode()) % 4
 
         if (languageCode.lowercase() != "pt") {
-            return when (variationSeed) {
-                0 -> "Close your eyes for 20 seconds and listen to the harmonic chord generated by **$primary** and **$secondary**. Inhale imagining the cooler blue hue entering your lungs, and exhale letting the warmer red tension melt down through your shoulders."
-                1 -> "Look at the color gradient connecting **$primary** and **$secondary** on your screen. Gently press your thumb and index finger together as you inhale for 4 seconds, then release the pressure completely as you exhale for 6 seconds."
-                2 -> "Place one hand over your chest and notice the rhythm of your breath (${(arousal * 100).toInt()}% pace). Picture **$primary** transforming from a heavy solid object into a warm, flowing wave of light."
-                3 -> "Soften your gaze so you see the whole screen at once without focusing on a single point. Let the sound of **$primary** and **$secondary** blend in your ears while you drop your jaw and relax your tongue."
-                4 -> "Take three slow breaths. On the first, acknowledge **$primary**; on the second, welcome **$secondary**; on the third, feel the open space between them expanding inside your torso."
-                else -> "Feel the temperature of your hands holding the device. Imagine the qualities of **$primary** and **$secondary** balancing each other like two musical notes forming a calm, steady chord."
+            return when (seed) {
+                0 -> "**Peripheral Vision & Optic Relaxation ($primary + $secondary):** Without moving your head, gently expand your field of vision to the left and right corners of the room. This immediately signals safety to your nervous system, allowing your breathing to slow down naturally."
+                1 -> "**Tactile & Jaw Decompression:** Rest both hands on your lap. As you inhale for 4 seconds, acknowledge the weight of **$primary**; as you exhale slowly for 6 seconds, consciously soften your jaw, tongue, and shoulders."
+                2 -> "**Acoustic Grounding Resonance:** Close your eyes for 20 seconds and focus entirely on the peaceful ambient sound in the app. Match your breath to the slow, warm swell of the tone."
+                else -> "**Three-Step Grounding Breath:** On your first breath, feel the firm support beneath your feet. On your second, welcome **$primary** without resistance. On your third, release all tension and feel clarity return."
             }
         }
 
-        val hintClause = if (wikiHint.isNotBlank()) " — evocando a essência de *\"$wikiHint...\"* —" else ""
-
-        return when (variationSeed) {
-            0 -> "**Experimento de Fusão Cromática ($primary + $secondary):** Olhe para o degradê de luz que une **$primary** e **$secondary** no seu mapa$hintClause. Inspire pelo nariz por 4 segundos imaginando a cor mais fria refrescando sua testa, e solte o ar pela boca por 6 segundos sentindo a cor mais quente aquecer e relaxar o centro do peito."
-            1 -> "**Experimento de Descompressão Tátil ($primary):** Com os olhos semiabertos ouvindo o acorde modular ao fundo, toque suavemente a ponta do polegar na ponta do indicador. Enquanto inspira, sinta a importância que você deu a **$primary**; ao soltar o ar devagar, afaste os dedos milímetro por milímetro, soltando qualquer peso ligado a **$secondary**."
-            2 -> "**Experimento de Ressonância Auditiva ($primary & $secondary):** Feche os olhos por 25 segundos e tente identificar as duas notas principais que estão se somando na música agora. Uma representa **$primary** e a outra **$secondary**$hintClause. Perceba como elas não brigam no ar — deixe sua respiração seguir o pulso lento desse acorde."
-            3 -> "**Experimento de Visão Periférica e Espaço Interno:** Sem mover a cabeça, amplie seu olhar para enxergar os quatro cantos da tela ao mesmo tempo. Enquanto faz isso, imagine que a distância física entre **$primary** e **$secondary** se abre também dentro da sua caixa torácica, criando um espaço amplo, calmo e arejado."
-            4 -> "**Experimento de Gravidade Zero ($primary):** Apoie os pés ou as costas confortavelmente e solte o peso da mandíbula. Em três respirações fundas, imagine que a esfera **$primary**$hintClause transfere sua melhor qualidade para o seu corpo, enquanto toda a rigidez se dissolve no som ambiente."
-            else -> "**Experimento de Pulso em Três Tempos ($primary · $secondary):** Na primeira inspiração, acolha a presença de **$primary** sem julgamento. Na segunda inspiração, perceba como **$secondary** complementa seu momento atual. Na terceira expiração longa, solte os ombros e sinta o equilíbrio entre ambas."
+        return when (seed) {
+            0 -> "**Abertura do Campo Ocular e Relaxamento do Nervo Óptico ($primary + $secondary):** Sem virar o pescoço, suavize o olhar e perceba os cantos laterais do ambiente onde você está. A visão periférica desativa o circuito de alerta da amígdala e aciona o sistema parassimpático, permitindo que a mente processe a tensão com serenidade e amplitude."
+            1 -> "**Descompressão de Mandíbula e Ombros:** Apoie as mãos suavemente sobre as pernas. Ao inspirar pelo nariz por 4 segundos, reconheça a importância de **$primary**; ao soltar o ar pela boca lentamente por 6 segundos, solte os dentes, relaxe a língua no assoalho da boca e deixe os ombros descerem dois centímetros."
+            2 -> "**Ressonância com a Harmonia Sonora:** Feche os olhos por 25 segundos e acompanhe apenas as notas suaves e consonantes que estão tocando ao fundo. Repare como não há pressa nem atrito na harmonia musical—permita que o ritmo cardíaco se alinhe a esse compasso acolhedor."
+            else -> "**Respiração Tripla de Ancoragem Corporal:** Na primeira inspiração, sinta o apoio firme do chão ou da cadeira sob o seu corpo. Na segunda, acolha **$primary** e **$secondary** sem cobrança. Na terceira expiração longa, solte o ar como um suspiro de alívio e sinta o espaço desobstruído que se abre dentro do peito."
         }
     }
 
@@ -661,20 +768,5 @@ class GroundingAndAiService {
             lower.contains("moderation") ||
             lower.contains("rerank") ||
             lower.contains("audio-transcribe")
-    }
-
-    private fun extractKeywords(prompt: String): List<String> {
-        val stopWords = setOf(
-            "como", "para", "que", "uma", "com", "dos", "das", "por", "mais", "entre",
-            "sobre", "quando", "onde", "qual", "isso", "este", "esta", "meu", "minha",
-            "estou", "sentindo", "muito", "pouco", "hoje", "agora",
-            "the", "and", "for", "with", "from", "that", "this", "what", "how", "into"
-        )
-        return prompt
-            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-            .split(Regex("\\s+"))
-            .map { it.trim() }
-            .filter { it.length >= 4 && it.lowercase() !in stopWords }
-            .take(3)
     }
 }

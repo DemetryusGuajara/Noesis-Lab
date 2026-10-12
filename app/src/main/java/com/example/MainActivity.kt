@@ -82,13 +82,10 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             val context = LocalContext.current
 
-            // Request POST_NOTIFICATIONS on Android 13+ so the Media Player notification can appear in the status bar
             val notifPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
-            ) { granted ->
-                if (granted) {
-                    viewModel.soundEngine.updateMediaNotification()
-                }
+            ) { _ ->
+                viewModel.soundEngine.updateMediaNotification()
             }
 
             LaunchedEffect(Unit) {
@@ -99,7 +96,11 @@ class MainActivity : ComponentActivity() {
                     ) == PackageManager.PERMISSION_GRANTED
                     if (!hasPerm) {
                         notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        viewModel.soundEngine.updateMediaNotification()
                     }
+                } else {
+                    viewModel.soundEngine.updateMediaNotification()
                 }
             }
 
