@@ -5,35 +5,33 @@ import android.util.Log
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.util.concurrent.TimeUnit
 
 /**
- * Local LLM Engine usando MediaPipe LLM Inference com Qwen 2.5 1.5B Instruct (Q4_K_M).
- * 
- * Características:
- * - Modelo ~900 MB (.task file)
- * - Roda 100% offline no dispositivo
- * - Aceleração GPU/NPU via MediaPipe delegates
- * - Multilíngue nativo (PT, EN, ES, FR + mais)
- * - Baixa automática na primeira execução
+ * Motor neural no aparelho via MediaPipe LLM Inference (.task).
+ *
+ * Dois slots verificados (litert-community, Apache 2.0, download anônimo OK):
+ * - FULL: Qwen2.5-1.5B-Instruct q8 (~1,6 GB) — aparelhos potentes.
+ * - LITE: Qwen2.5-0.5B-Instruct q8 (~550 MB) — aparelhos com menos RAM.
+ * Destino: armazenamento interno ou cartão SD (app-specific dir).
  */
 class LocalLlmEngine(private val context: Context) {
 
     private var llmInference: LlmInference? = null
-    
-    // Modelo Qwen 2.5 1.5B Instruct Q4_K_M (oficial MediaPipe/HuggingFace)
-    private val modelFileName = "qwen2.5-1.5b-instruct-q4_k_m.task"
-    private val modelUrl = "https://huggingface.co/second-state/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.task"
-    private val expectedSizeBytes = 950_000_000L // ~900 MB
-    
+
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(600, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(1800, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    private val appContext: Context
+        get() = context.applicationContext ?: context
 
     companion object {
         const val TAG = "LocalLlmEngine"
@@ -55,47 +53,150 @@ class LocalLlmEngine(private val context: Context) {
         onStateChange?.invoke(state)
     }
 
-    /** Inicializa o modelo (baixa se necessário, carrega na memória) */
+    private fun slot(): String = LlmPrefs.getSlot(appContext)
+
+    private fun slotUrl(): String =
+        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_URL else LlmPrefs.FULL_URL
+
+    private fun slotFileName(): String =
+        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_FILE else LlmPrefs.FULL_FILE
+
+    private fun slotMinBytes(): Long =
+        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_MIN_BYTES else LlmPrefs.FULL_MIN_BYTES
+
+    fun slotLabel(): String =
+        if (slot() == LlmPrefs.SLOT_LITE) "Qwen 2.5 0.5B" else "Qwen 2.5 1.5B"
+
+    /** Há cartão SD com diretório app-specific disponível? */
+    fun hasSdCard(): Boolean {
+        val dirs = appContext.getExternalFilesDirs(null)
+        return dirs.size > 1 && dirs[1] != null
+    }
+
+    fun getStorageLabel(): String =
+        if (LlmPrefs.getStorage(appContext) == LlmPrefs.STORAGE_SD && hasSdCard()) "SD" else "Interno"
+
+    private fun getModelDir(): File {
+        val useSd = LlmPrefs.getStorage(appContext) == LlmPrefs.STORAGE_SD && hasSdCard()
+        val base = if (useSd) {
+            appContext.getExternalFilesDirs(null)[1] ?: appContext.filesDir
+        } else {
+            appContext.filesDir
+        }
+        return File(base, "models")
+    }
+
+    private fun getModelFile(): File = File(getModelDir(), slotFileName())
+
+    /**
+     * Importa um .task a partir de um stream (seletor de arquivos),
+     * copiando para o armazenamento escolhido, com progresso.
+     */
+    suspend fun importFromStream(
+        input: InputStream,
+        sizeBytes: Long,
+        onProgress: (Float, Long, Long) -> Unit = { _, _, _ -> }
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dir = getModelDir()
+            dir.mkdirs()
+            val dest = getModelFile()
+            val tmp = File(dir, slotFileName() + ".tmp")
+            var copied = 0L
+            tmp.outputStream().use { out ->
+                val buffer = ByteArray(65536)
+                var len: Int
+                while (input.read(buffer).also { len = it } != -1) {
+                    out.write(buffer, 0, len)
+                    copied += len
+                    val p = if (sizeBytes > 0) copied.toFloat() / sizeBytes else -1f
+                    emit(State.Downloading(p, copied / (1024 * 1024), sizeBytes / (1024 * 1024)))
+                    onProgress(p, copied, sizeBytes)
+                }
+            }
+            input.close()
+            if (tmp.length() < slotMinBytes()) {
+                tmp.delete()
+                val msg = "Arquivo inválido ou incompleto (${tmp.length()} bytes)."
+                emit(State.Error(msg))
+                return@withContext Result.failure(IllegalStateException(msg))
+            }
+            if (dest.exists()) dest.delete()
+            tmp.renameTo(dest)
+            emit(State.NotStarted)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao importar modelo", e)
+            emit(State.Error("Falha ao importar: ${e.message}"))
+            Result.failure(e)
+        }
+    }
+
+    private fun downloadModel(dest: File, url: String) {
+        dest.parentFile?.mkdirs()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "NoesisLab/1.0 (Android)")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw RuntimeException("HTTP ${response.code} ao baixar o modelo")
+            }
+            val total = response.body?.contentLength() ?: -1L
+            var downloaded = 0L
+            val input = response.body?.byteStream() ?: throw RuntimeException("Corpo vazio na resposta")
+            val tmp = File(dest.parent, dest.name + ".tmp")
+            FileOutputStream(tmp).use { output ->
+                val buffer = ByteArray(65536)
+                var len: Int
+                while (input.read(buffer).also { len = it } != -1) {
+                    output.write(buffer, 0, len)
+                    downloaded += len
+                    val p = if (total > 0) downloaded.toFloat() / total else -1f
+                    emit(State.Downloading(p, downloaded / (1024 * 1024), total / (1024 * 1024)))
+                }
+            }
+            input.close()
+            if (tmp.length() < slotMinBytes()) {
+                tmp.delete()
+                throw RuntimeException("Download incompleto (${tmp.length()} bytes)")
+            }
+            if (dest.exists()) dest.delete()
+            tmp.renameTo(dest)
+        }
+    }
+
+    /** Inicializa o modelo (baixa o slot escolhido se necessário, carrega na memória). */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             emit(State.Initializing(0f))
-            
             val modelFile = getModelFile()
-            
-            // Baixa se não existe ou está incompleto
-            if (!modelFile.exists() || modelFile.length() < expectedSizeBytes * 0.9) {
-                emit(State.Downloading(0f, 0, expectedSizeBytes / (1024 * 1024)))
-                downloadModel(modelFile)
+            if (!modelFile.exists() || modelFile.length() < slotMinBytes()) {
+                emit(State.Downloading(0f, 0, -1L))
+                downloadModel(modelFile, slotUrl())
             }
-            
             emit(State.Initializing(0.5f))
-            
-            // Carrega no MediaPipe via createFromOptions (API oficial).
-            // Nota: setTemperature nao existe no LlmInferenceOptions desta versao
-            // (temperatura e configurada por sessao); usa o default da lib.
+
+            // API oficial MediaPipe: createFromOptions (temperatura = default da lib).
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(2048)
                 .build()
-            
-            llmInference = LlmInference.createFromOptions(context, options)
-            
+            llmInference = LlmInference.createFromOptions(appContext, options)
+
             emit(State.Initializing(0.9f))
-            
-            // Warm-up rápido (primeira inferência mais rápida depois)
             try {
                 llmInference?.generateResponse("Olá")
             } catch (e: Exception) {
                 Log.w(TAG, "Warm-up falhou (não crítico)", e)
             }
-            
             emit(State.Ready)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao inicializar LLM local", e)
             val errorMsg = when (e) {
-                is java.lang.OutOfMemoryError -> "Memória insuficiente para carregar o modelo (precisa ~1.2 GB RAM livre)"
-                is java.io.IOException -> "Erro de I/O: ${e.message}"
+                is OutOfMemoryError -> "Memória insuficiente para carregar o modelo"
+                is java.io.IOException -> "Erro de rede/armazenamento: ${e.message}"
                 else -> "Erro ao inicializar: ${e.message ?: e::class.simpleName}"
             }
             emit(State.Error(errorMsg))
@@ -103,7 +204,7 @@ class LocalLlmEngine(private val context: Context) {
         }
     }
 
-    /** Gera resposta completa (system prompt + user message) */
+    /** Gera resposta (ChatML do Qwen Instruct). */
     suspend fun generate(
         systemPrompt: String,
         userMessage: String,
@@ -111,19 +212,13 @@ class LocalLlmEngine(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             ensureInitialized()
-            
-            val fullPrompt = buildChatPrompt(systemPrompt, userMessage)
-            
-            // MediaPipe generateResponse retorna String diretamente (não é streaming callback)
+            val fullPrompt = buildPrompt(systemPrompt, userMessage)
             val generated = llmInference?.generateResponse(fullPrompt) ?: ""
-            
             onPartial(generated)
-            
             val finalText = generated.trim()
             if (finalText.length < 20) {
                 return@withContext Result.failure(IllegalStateException("Resposta muito curta: $finalText"))
             }
-            
             Result.success(finalText)
         } catch (e: Exception) {
             Log.e(TAG, "Erro na geração", e)
@@ -131,68 +226,33 @@ class LocalLlmEngine(private val context: Context) {
         }
     }
 
-    /** Constrói prompt no formato ChatML compatível com Qwen */
-    private fun buildChatPrompt(system: String, user: String): String {
-        return "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" + user + "<|im_end|>\n<|im_start|>assistant\n"
+    private fun buildPrompt(system: String, user: String): String {
+        return "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" +
+            user + "<|im_end|>\n<|im_start|>assistant\n"
     }
 
-    /** Verifica se modelo já foi baixado */
-    fun isModelDownloaded(): Boolean = getModelFile().exists() && getModelFile().length() > expectedSizeBytes * 0.9
+    /** Verifica se o modelo do slot atual está presente e válido. */
+    fun isModelDownloaded(): Boolean {
+        val f = getModelFile()
+        return f.exists() && f.length() > slotMinBytes()
+    }
 
-    /** Tamanho do modelo em MB */
+    /** Tamanho do modelo em MB. */
     fun getModelSizeMb(): Long = getModelFile().length() / (1024 * 1024)
 
-    /** Caminho do arquivo do modelo */
+    /** Caminho do arquivo do modelo. */
     fun getModelPath(): String = getModelFile().absolutePath
 
-    /** Remove o modelo baixado (libera espaço) */
-    fun deleteModel(): Boolean = getModelFile().delete().also { 
-        if (it) emit(State.NotStarted) 
+    /** Remove o modelo do slot atual (libera espaço). */
+    fun deleteModel(): Boolean = getModelFile().delete().also {
+        if (it) emit(State.NotStarted)
     }
 
-    /** Libera recursos do modelo da memória */
+    /** Libera recursos do modelo da memória. */
     fun release() {
         llmInference?.close()
         llmInference = null
         emit(State.NotStarted)
-    }
-
-    private fun getModelFile(): File = File(context.filesDir, "models/$modelFileName")
-
-    private fun downloadModel(dest: File) {
-        dest.parentFile?.mkdirs()
-        
-        val request = Request.Builder()
-            .url(modelUrl)
-            .header("User-Agent", "NoesisLab/1.0 (Android; LocalLLM)")
-            .build()
-        
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw RuntimeException("HTTP ${response.code}: ${response.message}")
-            }
-            
-            val total = response.body?.contentLength() ?: expectedSizeBytes
-            var downloaded = 0L
-            val input = response.body?.byteStream() ?: throw RuntimeException("Corpo vazio na resposta")
-            val output = FileOutputStream(dest)
-            val buffer = ByteArray(8192)
-            
-            var len: Int
-            while (input.read(buffer).also { len = it } != -1) {
-                output.write(buffer, 0, len)
-                downloaded += len
-                val progress = downloaded.toFloat() / total
-                emit(State.Downloading(progress, downloaded / (1024 * 1024), total / (1024 * 1024)))
-            }
-            output.close()
-            
-            // Verifica integridade
-            if (dest.length() < expectedSizeBytes * 0.9) {
-                dest.delete()
-                throw RuntimeException("Download incompleto (${dest.length()} bytes)")
-            }
-        }
     }
 
     private fun ensureInitialized() {

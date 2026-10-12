@@ -3,6 +3,7 @@ package com.example.network
 import android.content.Context
 import android.util.Log
 import com.example.ai.LocalLlmEngine
+import com.example.ai.OllamaEngine
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,6 +20,7 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.random.Random
 
 data class SphereSpatialDescriptor(
     val name: String,
@@ -532,12 +534,19 @@ class GroundingAndAiService(private val context: Context) {
         SUA MISSÃO E TOM DE VOZ:
         - Produza uma leitura PROFUNDA, RICA EM INSIGHTS e REVELADORA, mas com linguagem LÚCIDA, CALOROSA e ACESSÍVEL (nunca use jargão acadêmico hermético ou frases rasas de autoajuda).
         - Esta sessão é ÚNICA e INDEPENDENTE. Analise exclusivamente o estado presente desenhado pelo usuário.
+        - Cada leitura deve soar INÉDITA: nunca repita títulos, metáforas centrais ou aberturas de leituras anteriores. Varie o filósofo-âncora (Espinosa, Merleau-Ponty, Deleuze, Varela, Bergson), a imagem-guia e o ritmo das frases a cada resposta.
 
         FUNDAMENTAÇÃO TEÓRICA QUE GUIA SEU OLHAR:
-        1. Baruch de Espinosa (Ética dos Afetos): Veja cada emoção ou conceito não como defeito moral, mas como uma variação da *potência de agir* (conatus). Mostre como transformar paixões passivas (que paralisam) em afetos ativos (compreensão que liberta).
-        2. Maurice Merleau-Ponty (Fenomenologia da Percepção): A mente não está separada do corpo; o que o usuário posicionou na tela reflete como o corpo dele está habitando o espaço e o tempo hoje.
-        3. Gilles Deleuze & Félix Guattari (Rizoma e Intensidades): Aproxime conceitos aparentemente distantes (ex: um sentimento e uma ideia abstrata) para revelar *linhas de fuga* criativas onde o usuário via apenas bloqueio.
-        4. Francisco Varela & Neurociência Afetiva Preditiva: Explique como o cérebro antecipa cenários e como a posição espacial das esferas revela acordos internos de proteção ou expansão.
+        1. Baruch de Espinosa (Ética dos Afetos): cada emoção ou conceito é uma variação da *potência de agir* (conatus). Mostre como transformar paixões passivas (que paralisam) em afetos ativos (compreensão que liberta).
+        2. Maurice Merleau-Ponty (Fenomenologia da Percepção): a mente não está separada do corpo; o que o usuário posicionou na tela reflete como o corpo dele está habitando o espaço e o tempo hoje.
+        3. Gilles Deleuze & Félix Guattari (Rizoma e Intensidades): aproxime conceitos aparentemente distantes para revelar *linhas de fuga* criativas onde o usuário via apenas bloqueio.
+        4. Francisco Varela & Neurociência Afetiva Preditiva: o cérebro antecipa cenários; a posição espacial das esferas revela acordos internos de proteção ou expansão.
+
+        CONFORMIDADE COM OS SLIDERS (obrigatória — module tom e conteúdo):
+        - Ritmo Interno=${(arousal * 100).toInt()}%: se alto (>65%), escreva frases mais curtas e energéticas e proponha práticas de descarga e aterramento; se baixo (<38%), use cadência lenta, imagens de repouso e práticas de sustentação suave.
+        - Abertura Afetiva=${(valence * 100).toInt()}%: se alta, ouse em interpretações expansivas e convites criativos; se baixa, priorize acolhimento, segurança e passos pequenos, sem exigir exposição.
+        - Profundidade de Foco=${(focus * 100).toInt()}%: se alta, aprofunde um único fio filosófico até o fim; se baixa, ofereça um panorama leve com 2 a 3 ângulos curtos.
+        - Esferas marcadas como pesadas pedem respeito ao ritmo e imagens de sustentação; esferas leves pedem leveza, humor sutil e abertura.
 
         LEITURA DA GEOMETRIA ESPACIAL DAS ESFERAS:
         - Esferas do campo: $particlesSummary
@@ -547,11 +556,11 @@ class GroundingAndAiService(private val context: Context) {
         $cleanKnowledgeSummary
 
         ESTRUTURA OBRIGATÓRIA DA RESPOSTA (em Markdown):
-        1. Comece com um título `#` poético e revelador que sintetize a constelação atual.
-        2. Na seção `### 1. A Geometria Invisível do Seu Momento`, interprete a proximidade (afinidade/aliança) e a distância (fronteira/tensão) entre as esferas que o usuário posicionou.
+        1. Comece com um título `#` poético e revelador que sintetize a constelação atual. PROIBIDO reutilizar títulos genéricos como "Cartografia Viva" em todas as leituras — invente um novo a cada vez.
+        2. Na seção `### 1. A Geometria Invisível do Seu Momento`, interprete a proximidade (afinidade/aliança) e a distância (fronteira/tensão) entre as esferas que o usuário posicionou, citando nominalmente os pares e o que cada distância sugere.
         3. Na seção `### 2. O Insight Central: Além do Dilema`, dialogue profundamente com o que o usuário escreveu (ou com a combinação das esferas), trazendo uma virada de chave filosófica e psicológica que desmonte culpas ou falsas dicotomias.
-        4. Na seção `### 3. O Que Cada Esfera Revela Hoje`, dedique um tópico `- **Nome da Esfera:**` para cada esfera presente no campo, articulando sua importância (cor), sua sensação (leve ou pesada) e seu sentido profundo.
-        5. Ao final, insira o separador exato `---SOMATIC---` e escreva um exercício prático de percepção corporal em 3 passos concretos (visão periférica, respiração vagal e soltura muscular) conectado às esferas do usuário.
+        4. Na seção `### 3. O Que Cada Esfera Revela Hoje`, dedique um tópico `- **Nome da Esfera:**` para cada esfera presente no campo, articulando sua importância (cor), sua sensação (leve ou pesada) e seu sentido profundo — sem repetir a mesma fórmula frasal em todas as esferas.
+        5. Ao final, insira o separador exato `---SOMATIC---` e CRIE um exercício corporal inédito de 3 passos: combine UMA técnica corporal validada (respiração diafragmática, relaxamento muscular progressivo, grounding sensorial 5-4-3-2-1, varredura corporal, enraizamento postural, soltura da mandíbula/ombros, etc.) com UMA metáfora extraída das esferas do usuário. É PROIBIDO repetir sempre o mesmo trio (visão periférica + respiração 4s/6s + soltura): cada leitura exige uma combinação nova, plausível e conectada ao estado atual.
     """.trimIndent()
 
     /**
@@ -574,6 +583,8 @@ class GroundingAndAiService(private val context: Context) {
         activeBaseUrl: String?,
         activeApiKey: String?,
         activeModelId: String?,
+        ollamaHost: String? = null,
+        ollamaModel: String? = null,
         onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
@@ -660,26 +671,79 @@ class GroundingAndAiService(private val context: Context) {
             }
         }
 
-        // Tier 2: Local LLM (Qwen 2.5 1.5B via MediaPipe) - runs 100% offline
+        // Tier 2A: modelo Qwen (.task) no aparelho via MediaPipe.
+        // Só usa se o arquivo do slot escolhido já estiver presente — nunca
+        // baixa sozinho na hora da leitura (download só com consentimento:
+        // diálogo inicial ou botão em Ajustes).
         val localLlm = getLocalLlm()
-        onStageProgress(
-            when (languageCode.lowercase()) {
-                "en" -> "3/3 · Generating deep reflection via local neural engine..."
-                "es" -> "3/3 · Generando reflexión profunda con motor neural local..."
-                "fr" -> "3/3 · Génération de réflexion profonde via moteur neural local..."
-                else -> "3/3 · Gerando reflexão profunda via motor neural local..."
-            }
-        )
+        if (localLlm.isModelDownloaded()) {
+            onStageProgress(
+                when (languageCode.lowercase()) {
+                    "en" -> "3/3 · Generating deep reflection via on-device ${localLlm.slotLabel()}..."
+                    "es" -> "3/3 · Generando reflexión profunda con ${localLlm.slotLabel()} en el dispositivo..."
+                    "fr" -> "3/3 · Réflexion profonde via ${localLlm.slotLabel()} local..."
+                    else -> "3/3 · Gerando reflexão profunda via ${localLlm.slotLabel()} no aparelho..."
+                }
+            )
 
-        val initResult = localLlm.initialize()
-        if (initResult.isSuccess) {
-            val localText = localLlm.generate(
+            val initResult = localLlm.initialize()
+            if (initResult.isSuccess) {
+                val localText = localLlm.generate(
+                    systemPrompt = masterSystemPrompt,
+                    userMessage = userMessage
+                ).getOrNull()
+
+                if (localText != null && localText.length > 30) {
+                    val parts = localText.split("---SOMATIC---")
+                    val mainNarrative = parts[0].trim()
+                    val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
+                        parts[1].trim()
+                    } else {
+                        buildDeepSomaticPractice(
+                            languageCode = languageCode,
+                            arousal = arousal,
+                            valence = valence,
+                            focus = focus,
+                            concepts = titleCasedConcepts,
+                            topology = topology,
+                            userPrompt = userPrompt,
+                            seed = System.currentTimeMillis()
+                        )
+                    }
+                    return@withContext OrchestratedSimulationResult(
+                        narrativeMarkdown = mainNarrative,
+                        somaticShiftSuggestion = somatic,
+                        providerLabel = "${localLlm.slotLabel()} no Aparelho",
+                        grounding = grounding
+                    )
+                }
+            } else {
+                Log.w("GroundingAndAiService", "Modelo no aparelho falhou: ${initResult.exceptionOrNull()?.message}")
+            }
+        }
+
+        // Tier 2B: Ollama server (qwen2.5:1.5b por padrão) via API nativa /api/chat.
+        // O Ollama roda no PC/servidor — o app só o alcança se houver host configurado.
+        if (!ollamaHost.isNullOrBlank()) {
+            val ollama = OllamaEngine(
+                host = ollamaHost,
+                model = ollamaModel?.ifBlank { "qwen2.5:1.5b" } ?: "qwen2.5:1.5b"
+            )
+            onStageProgress(
+                when (languageCode.lowercase()) {
+                    "en" -> "3/3 · Consulting Ollama server (${ollama.model})..."
+                    "es" -> "3/3 · Consultando al servidor Ollama (${ollama.model})..."
+                    "fr" -> "3/3 · Consultation du serveur Ollama (${ollama.model})..."
+                    else -> "3/3 · Consultando servidor Ollama (${ollama.model})..."
+                }
+            )
+            val ollamaText = ollama.generate(
                 systemPrompt = masterSystemPrompt,
                 userMessage = userMessage
             ).getOrNull()
 
-            if (localText != null && localText.length > 30) {
-                val parts = localText.split("---SOMATIC---")
+            if (ollamaText != null && ollamaText.length > 30) {
+                val parts = ollamaText.split("---SOMATIC---")
                 val mainNarrative = parts[0].trim()
                 val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
                     parts[1].trim()
@@ -691,19 +755,19 @@ class GroundingAndAiService(private val context: Context) {
                         focus = focus,
                         concepts = titleCasedConcepts,
                         topology = topology,
-                        userPrompt = userPrompt
+                        userPrompt = userPrompt,
+                        seed = System.currentTimeMillis()
                     )
                 }
                 return@withContext OrchestratedSimulationResult(
                     narrativeMarkdown = mainNarrative,
                     somaticShiftSuggestion = somatic,
-                    providerLabel = "Motor Neural Local (Qwen 2.5 1.5B)",
+                    providerLabel = "Ollama · ${ollama.model}",
                     grounding = grounding
                 )
+            } else {
+                Log.w("GroundingAndAiService", "Ollama indisponível em $ollamaHost — usando motor interno.")
             }
-        } else {
-            // Log the error but continue to fallback
-            Log.w("GroundingAndAiService", "Local LLM init failed: ${initResult.exceptionOrNull()?.message}")
         }
 
         // Tier 3: Autonomous On-Device Dialectical Phenomenological Engine
@@ -717,6 +781,7 @@ class GroundingAndAiService(private val context: Context) {
         )
         delay(550)
 
+        val seed = System.currentTimeMillis()
         val synthesized = synthesizeDeepMultiSphereNarrative(
             userPrompt = userPrompt,
             spatialSpheres = spatialSpheres,
@@ -726,7 +791,8 @@ class GroundingAndAiService(private val context: Context) {
             valence = valence,
             focus = focus,
             grounding = grounding,
-            languageCode = languageCode
+            languageCode = languageCode,
+            seed = seed
         )
         val somatic = buildDeepSomaticPractice(
             languageCode = languageCode,
@@ -735,7 +801,8 @@ class GroundingAndAiService(private val context: Context) {
             focus = focus,
             concepts = titleCasedConcepts,
             topology = topology,
-            userPrompt = userPrompt
+            userPrompt = userPrompt,
+            seed = seed
         )
 
         OrchestratedSimulationResult(
@@ -807,6 +874,54 @@ class GroundingAndAiService(private val context: Context) {
         }.getOrNull()
     }
 
+    // ---------- Bancos de variedade do motor combinatório (Tier 3) ----------
+    // Cada leitura sorteia (seed = timestamp) aberturas, metáforas e módulos,
+    // de modo que duas leituras nunca tenham a mesma forma — mesmo com as
+    // mesmas esferas. Variedade combinatória real; criação livre exige LLM.
+
+    private val openingTitlesPt = listOf(
+        "O Campo Entre %1\$s e %2\$s",
+        "Quando %1\$s Encontra %2\$s",
+        "A Constelação de %1\$s",
+        "O Peso e a Luz de %1\$s",
+        "Geografia Íntima: %1\$s, %2\$s e o Espaço Entre Elas",
+        "O Mapa Que %1\$s Desenhou Hoje",
+        "Entre %1\$s e %2\$s: Leitura do Momento",
+        "A Paisagem Interior de %1\$s"
+    )
+
+    private val openingLinesPt = listOf(
+        "O que você desenhou na tela não é uma lista de palavras, mas uma **geometria viva de forças**: cada distância, cada aproximação e cada peso contam como o seu corpo está negociando o dia.",
+        "Nenhum estado interior nasce de um sentimento isolado. O que você mapeou é um **campo de tensões e alianças** — e é exatamente na relação entre as esferas que mora o sentido de hoje.",
+        "Imagine sua atenção como um céu noturno: cada esfera é uma estrela, mas o desenho que importa é a **constelação** — as linhas invisíveis que ligam %1\$s a %2\$s.",
+        "A mente não entrega relatórios; ela entrega **paisagens**. O mapa que você compôs revela relevo, clima e correntes — vamos percorrê-lo juntos.",
+        "Antes das palavras, o corpo já tinha votado: posição, tamanho e peso de cada esfera são o **boletim somático** do seu momento. Eis a leitura dele.",
+        "Toda configuração espacial é uma frase que o corpo escreve. A sua diz algo sobre %1\$s que as palavras sozinhas não diriam — vamos traduzi-la."
+    )
+
+    private val anchorLensPt = listOf(
+        "Na tradição de Espinosa, cada afeto é uma variação da nossa *potência de agir* (*conatus*): nada aqui é defeito moral, tudo é força pedindo direção.",
+        "Para Merleau-Ponty, perceber é habitar: o mapa que você desenhou mostra o modo como o seu corpo está morando no espaço e no tempo hoje.",
+        "Deleuze nos lembra que criar é traçar *linhas de fuga*: ligar pontos distantes do mapa e descobrir saídas onde o hábito só via repetição.",
+        "Na enação de Varela, a mente se faz ao mapear-se: o simples gesto de externalizar essas esferas já reorganiza seu sistema nervoso.",
+        "Bergson distinguia o tempo do relógio da *duração interior*: nem tudo o que é fértil floresce na velocidade da ansiedade."
+    )
+
+    private val affinityFramesPt = listOf(
+        "uma fusão quase inseparável",
+        "uma vizinhança de forte afinidade",
+        "um acoplamento em ressonância",
+        "uma aliança em gestação"
+    )
+
+    private val closingLinesPt = listOf(
+        "Leve este mapa com você hoje: volte a ele quando a névoa voltar — observar já é começar a transformar.",
+        "Nenhuma constelação é sentença. Ela é fotografia do céu agora; amanhã as estrelas se movem — e você com elas.",
+        "Guarde uma imagem desta leitura no corpo: ela será sua bússola quando as palavras faltarem.",
+        "O trabalho de hoje está feito: você nomeou, posicionou e pesou. O resto é deixar o tempo fazer a digestão.",
+        "Que este mapa sirva de espelho gentil — não para julgar o território, mas para caminhar nele com mais lucidez."
+    )
+
     /**
      * Deep Multi-Sphere Spatial & Dialectical Phenomenological Engine:
      * Analyzes ALL spheres on the user's canvas, their exact proximity (affinity) and distance (polarity),
@@ -822,7 +937,8 @@ class GroundingAndAiService(private val context: Context) {
         valence: Float,
         focus: Float,
         grounding: GroundingBundle,
-        languageCode: String
+        languageCode: String,
+        seed: Long
     ): String {
         val conceptsList = if (conceptNames.isNotEmpty()) conceptNames else listOf("Desejo", "Medo", "Tempo")
         val primaryConcept = topology.dominantSphere?.name ?: conceptsList.firstOrNull() ?: "Desejo"
@@ -864,10 +980,15 @@ class GroundingAndAiService(private val context: Context) {
             }.trim()
         }
 
-        // Rich, Deep, Accessible Portuguese Phenomenological Essay
+        // Rich, Deep, Accessible Portuguese Phenomenological Essay (seeded variety)
+        val rng = Random(seed)
         return buildString {
-            appendLine("# Cartografia Viva: O Campo Entre $primaryConcept e $secondaryConcept")
-            appendLine("O que você acabou de desenhar na tela não é uma lista estática de palavras, mas uma **geometria viva de forças**. Na filosofia da mente e na neurociência afetiva, um estado interior nunca é feito de um único sentimento isolado: ele nasce exatamente da distância, da afinidade e do peso relativo entre tudo o que ocupa a sua atenção agora.")
+            val titleTemplate = openingTitlesPt[rng.nextInt(openingTitlesPt.size)]
+            appendLine("# " + titleTemplate.replace("%1\$s", primaryConcept).replace("%2\$s", secondaryConcept))
+            val openingTemplate = openingLinesPt[rng.nextInt(openingLinesPt.size)]
+            appendLine(openingTemplate.replace("%1\$s", primaryConcept).replace("%2\$s", secondaryConcept))
+            appendLine()
+            appendLine(anchorLensPt[rng.nextInt(anchorLensPt.size)])
             appendLine()
 
             // Section 1: Spatial Geometry (Proximity = Affinity, Distance = Polarity)
@@ -876,11 +997,16 @@ class GroundingAndAiService(private val context: Context) {
                 val a = affinityPair.first
                 val b = affinityPair.second
                 val affinityNature = if (topology.closestDistance < 0.38f) {
-                    "uma fusão quase inseparável"
+                    affinityFramesPt[0]
                 } else {
-                    "uma vizinhança de forte afinidade"
+                    affinityFramesPt[1 + rng.nextInt(affinityFramesPt.size - 1)]
                 }
-                appendLine("Ao posicionar **${a.name}** bem próximo de **${b.name}** ($affinityNature), você revelou onde mora o núcleo de gravidade da sua mente hoje. Para a fenomenologia de Maurice Merleau-Ponty, aquilo que aproximamos no nosso espaço perceptivo funciona como um *acorde de fundo*: **${a.name}** está emprestando sua cor e seu tom para a forma como você experimenta **${b.name}**. Eles não estão competindo; estão alimentando um ao outro.")
+                val affinityFormulation = rng.nextInt(3)
+                when (affinityFormulation) {
+                    0 -> appendLine("Ao posicionar **${a.name}** bem próximo de **${b.name}** ($affinityNature), você revelou onde mora o núcleo de gravidade da sua mente hoje. Para a fenomenologia de Merleau-Ponty, aquilo que aproximamos no espaço perceptivo funciona como um *acorde de fundo*: **${a.name}** está emprestando sua cor e seu tom para a forma como você experimenta **${b.name}**. Eles não estão competindo; estão alimentando um ao outro.")
+                    1 -> appendLine("O par **${a.name}** ↔ **${b.name}** ($affinityNature) é o coração do seu mapa atual. Onde a atenção aproxima, o corpo declara aliança: essas duas forças estão operando em circuito fechado, e o estado de uma regula diretamente o estado da outra.")
+                    else -> appendLine("Repare no abraço entre **${a.name}** e **${b.name}** ($affinityNature). Em termos deleuzianos, aí corre sua principal *linha de intensidade*: seguir esse fio — em vez de rompê-lo — é o caminho mais curto para a clareza hoje.")
+                }
             } else {
                 appendLine("Com **$primaryConcept** ocupando o centro gravitacional do seu mapa, sua atenção escolheu este ponto como bússola para organizar as demais sensações do dia.")
             }
@@ -905,7 +1031,8 @@ class GroundingAndAiService(private val context: Context) {
                     secondary = secondaryConcept,
                     heavyCount = topology.heavySpheres.size,
                     arousal = arousal,
-                    valence = valence
+                    valence = valence,
+                    seed = seed
                 )
                 appendLine(deepDilemmaAnalysis)
             } else {
@@ -935,6 +1062,9 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine("### 4. Ressonância Conceitual & Síntese")
                 appendLine("Com seu ritmo interno em **${(arousal * 100).toInt()}%**, abertura emocional em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, a literatura contemporânea (em diálogo com estudos como *\"$acadTitle\"*) aponta que a percepção muda no instante em que deixamos de ser reféns de um estado e passamos a ser seus observadores criativos. O simples gesto de mapear essas esferas já reorganiza a forma como o seu sistema nervoso processa este momento.")
             }
+
+            appendLine()
+            appendLine(closingLinesPt[rng.nextInt(closingLinesPt.size)])
         }.trim()
     }
 
@@ -946,11 +1076,14 @@ class GroundingAndAiService(private val context: Context) {
         val lower = sphere.name.lowercase()
         val isHeavy = sphere.weightHeaviness >= 0.55f
         val isHighImportance = sphere.importanceMass >= 1.55f
+        val isMidHeavy = !isHeavy && sphere.weightHeaviness >= 0.38f
 
         val weightQualifierPt = when {
             isHighImportance && isHeavy -> "Configurada com alta importância e sensação densa (${(sphere.weightHeaviness * 100).toInt()}% de peso), esta esfera atua hoje como uma âncora grave que exige respeito ao seu ritmo."
+            isHighImportance && isMidHeavy -> "Com alta importância e densidade intermediária (${(sphere.weightHeaviness * 100).toInt()}% de peso), ela tem presença firme sem esmagar: pede atenção contínua, não urgência."
             isHighImportance && !isHeavy -> "Com alta importância mas sensação leve (${(sphere.weightHeaviness * 100).toInt()}% de peso), ela brilha como uma fonte de inspiração aberta, sem cobrança sufocante."
-            !isHighImportance && isHeavy -> "Mesmo em tamanho discreto, carrega uma densidade latente (${(sphere.weightHeaviness * 100).toInt()}% de peso)—um lembrete sutil no fundo da mente que pede acolhimento."
+            !isHighImportance && isHeavy -> "Mesmo em tamanho discreto, carrega uma densidade latente (${(sphere.weightHeaviness * 100).toInt()}% de peso) — um lembrete sutil no fundo da mente que pede acolhimento."
+            !isHighImportance && isMidHeavy -> "Discreta no tamanho e morna na sensação (${(sphere.weightHeaviness * 100).toInt()}% de peso), ela trabalha em silêncio: influência de fundo que merece uma escuta atenta."
             else -> "Flutuando com suavidade e leveza (${(sphere.weightHeaviness * 100).toInt()}% de peso), oferece respiro e espaço livre ao redor das outras ideias."
         }
 
@@ -980,7 +1113,31 @@ class GroundingAndAiService(private val context: Context) {
                 "O Cansaço é a sabedoria biológica do corpo interrompendo o excesso de exigência cognitiva. Honrar o descanso não é abandonar seus projetos, é devolver solo fértil para eles."
             lower.contains("justiça") || lower.contains("equilíbrio") || lower.contains("ética") ->
                 "Representa a justa medida e a ecologia interior: o compromisso de não ser injusto consigo mesmo enquanto tenta dar conta das demandas do mundo."
-            lower.contains("foco") || lower.contains("força") || lower.contains("clareza") ->
+            lower.contains("raiva") || lower.contains("irritação") || lower.contains("irritacao") || lower.contains("fúria") || lower.contains("furia") ->
+                "A Raiva é energia de fronteira: para Espinosa, ela sinaliza onde sua potência foi contrariada. Em vez de reprimi-la ou obedecê-la cegamente, use-a como bússola — ela aponta exatamente o limite que precisa ser redesenhado."
+            lower.contains("tristeza") || lower.contains("melancolia") || lower.contains("nostalgia") || lower.contains("saudade") ->
+                "A Tristeza é a maré baixa da alma: expõe o que a euforia esconde. Honrá-la não é afundar-se nela, é permitir que ela lave e reorganize o terreno interno antes da próxima maré cheia."
+            lower.contains("alegria") || lower.contains("euforia") || lower.contains("entusiasmo") || lower.contains("empolgação") || lower.contains("empolgacao") ->
+                "A Alegria, para Espinosa, é a passagem a uma perfeição maior — o sinal mais confiável de que sua potência está aumentando. Ancore-se nela: registre onde ela mora no corpo para poder revisitá-la."
+            lower.contains("amor") || lower.contains("carinho") || lower.contains("afeto") || lower.contains("ternura") ->
+                "O Amor é a atenção tornada morada: aquilo que amamos, sustentamos. Na sua constelação, ele funciona como cola gravitacional — aproxima o que estava disperso e dá peso ao que importa."
+            lower.contains("vergonha") || lower.contains("culpa") ->
+                "Vergonha e Culpa são afetos do olhar — supõem um tribunal interno. A virada espinosana: trocar o julgamento pela compreensão das causas. O que tem causa, tem manejo; o que tem manejo, deixa de ser sentença."
+            lower.contains("esperança") || lower.contains("esperanca") || lower.contains("otimismo") ->
+                "A Esperança é a imaginação trabalhando a seu favor: o cérebro preditivo ensaiando futuros habitáveis. Alimente-a com um próximo passo concreto, pequeno o bastante para ser cumprido hoje."
+            lower.contains("ansiedade") || lower.contains("ansios") || lower.contains("angústia") || lower.contains("angustia") || lower.contains("aflição") || lower.contains("aflicao") ->
+                "A Ansiedade é o sistema de alarme disparando antes da hora: o corpo antecipando cenários que ainda não existem. Acalmar o corpo primeiro (respiração, pés no chão) é mais eficaz que debater com os cenários."
+            lower.contains("coragem") || lower.contains("ousadia") ->
+                "A Coragem não é ausência de medo, é o medo atravessado com lucidez. Ela aparece no mapa como vetor de expansão: siga a direção para onde ela aponta, mesmo em passos pequenos."
+            lower.contains("liberdade") || lower.contains("autonomia") ->
+                "A Liberdade, em Espinosa, não é fazer qualquer coisa, é agir a partir da compreensão das próprias causas. Cada esfera mapeada com honestidade aumenta seu grau de liberdade real."
+            lower.contains("gratidão") || lower.contains("gratidao") ->
+                "A Gratidão é atenção treinada para o que sustenta: ela converte o fundo em figura. Praticá-la reconfigura o campo perceptivo — o mapa literalmente muda de cor quando ela entra."
+            lower.contains("solidão") || lower.contains("solidao") || lower.contains("sozinho") ->
+                "A Solidão tem duas faces: abandono ou recolhimento. No mapa de hoje, pergunte-se qual face está ativa — o recolhimento escolhido é laboratório; o abandono sentido pede ponte, nem que seja mínima, com o mundo."
+            lower.contains("poder") || lower.contains("força") || lower.contains("forca") ->
+                "O Poder aqui é potência, não domínio: a capacidade de produzir efeitos no mundo. Pergunte-se onde sua energia vaza e onde ela constrói — o mapa mostra os dois pontos."
+            lower.contains("foco") || lower.contains("clareza") ->
                 "A atenção seletiva que recolhe a energia dispersa e a conduz para um único ponto de presença lúcida."
             else -> {
                 val cleanSentences = cleanExtract
@@ -1007,13 +1164,22 @@ class GroundingAndAiService(private val context: Context) {
         secondary: String,
         heavyCount: Int,
         arousal: Float,
-        valence: Float
+        valence: Float,
+        seed: Long
     ): String {
         val lower = userText.lowercase()
-        val somaticContext = if (heavyCount >= 2 || arousal > 0.65f) {
-            "Repare que você configurou esferas com peso acentuado e ritmo interno elevado (${(arousal * 100).toInt()}%), o que indica que essa questão não está apenas nas ideias, mas vibrando fisicamente no seu corpo."
-        } else {
-            "Seu estado corporal mostra espaço de sobriedade e contemplação (${(valence * 100).toInt()}% de abertura), o que permite observar essa questão sem ser engolido pela pressa."
+        val rng = Random(seed + lower.length)
+        val somaticContext = when {
+            heavyCount >= 2 && arousal > 0.65f ->
+                "Repare: esferas com peso acentuado e ritmo interno elevado (${(arousal * 100).toInt()}%) indicam que essa questão não está só nas ideias — vibra fisicamente no corpo. Comece pelo corpo, depois volte às ideias."
+            heavyCount >= 2 ->
+                "Com ${heavyCount} esferas densas no mapa, há matéria acumulada pedindo digestão lenta. Não force síntese rápida; deixe as camadas se assentarem."
+            arousal > 0.65f ->
+                "Seu ritmo interno em ${(arousal * 100).toInt()}% mostra aceleração: os pensamentos correm mais rápido que a compreensão. Desacelerar o corpo é o atalho mais curto para clarear a mente."
+            valence < 0.35f ->
+                "Com abertura em ${(valence * 100).toInt()}%, o sistema está em modo de proteção — e tudo bem. Leituras úteis agora são as que cabem em passos pequenos e seguros."
+            else ->
+                "Seu estado corporal mostra espaço de sobriedade e contemplação (${(valence * 100).toInt()}% de abertura), o que permite observar essa questão sem ser engolido pela pressa."
         }
 
         return when {
@@ -1026,14 +1192,77 @@ class GroundingAndAiService(private val context: Context) {
             lower.contains("ansios") || lower.contains("medo") || lower.contains("preocup") || lower.contains("tenso") || lower.contains("cansad") ->
                 "A tensão acumulada surge quando a mente tenta resolver no plano abstrato do futuro algo que o corpo está sentindo no presente. Quando **$dominant** e **$secondary** se cruzam sob pressão, o pensamento tende a girar em círculos procurando garantias absolutas antes de descansar. $somaticContext A virada de chave aqui é inverter a ordem: primeiro oferecer segurança sensorial ao corpo (soltando a vigilância muscular), para só depois deixar que a relação entre **$dominant** e **$secondary** se decante naturalmente."
 
-            else ->
-                "Aquilo que você expressou revela como **$dominant** e **$secondary** estão tecendo um diálogo silencioso nos bastidores da sua atenção. Muitas vezes, tratamos nossos estados internos como problemas a serem resolvidos rapidamente, quando na verdade eles são **paisagens a serem compreendidas**. $somaticContext Ao externalizar essas esferas na tela e dar a cada uma sua cor, seu peso e seu lugar exato no espaço, você já deixou de estar misturado à névoa do sentimento e assumiu o lugar de quem observa com lucidez e gentileza."
+            lower.contains("luto") || lower.contains("perda") || lower.contains("morte") || lower.contains("partiu") || lower.contains("saudade") ->
+                "A perda reorganiza o mapa inteiro: **$dominant** tenta seguir adiante enquanto **$secondary** guarda o vínculo. O luto não é um problema a resolver, é um território a atravessar — e atravessar leva o tempo da *duração interior*, não o do relógio. $somaticContext Permita-se rituais pequenos e repetidos de despedida: eles dão ao corpo as marcas de passagem que a mente sozinha não consegue produzir."
+
+            lower.contains("raiva") || lower.contains("irritad") || lower.contains("conflito") || lower.contains("briga") || lower.contains("injust") ->
+                "A raiva acusa onde a potência foi contrariada — e nisso ela é informante preciosa, não inimiga. Pergunte o que **$dominant** está defendendo e o que **$secondary** teme perder se o limite for redesenhado. $somaticContext Traduza a energia em frase-limite clara e concreta antes de qualquer conversa difícil: raiva com endereço vira negociação; sem endereço, vira incêndio."
+
+            lower.contains("vergonha") || lower.contains("culpa") || lower.contains("errei") || lower.contains("arrepend") ->
+                "Culpa e vergonha supõem um tribunal interno em sessão permanente. Mas todo tribunal pode ser revisto: troque o veredito pela autópsia das causas — o que faltava, o que sobrava, o que era impossível saber então. $somaticContext Entre **$dominant** e **$secondary** há material para reparação concreta, que dissolve culpa melhor que qualquer autoflagelo: um gesto, um pedido, um ajuste de rota."
+
+            lower.contains("apatia") || lower.contains("sentido") || lower.contains("vazio") || lower.contains("desânimo") || lower.contains("desanimo") || lower.contains("propósito") || lower.contains("proposito") ->
+                "A apatia raramente é falta de vontade — costuma ser excesso de exigência internalizada paralisando o conatus. Quando tudo pesa igual, nada se move. $somaticContext Reduza a unidade de ação até o ridículo (cinco minutos, um telefonema, uma caminhada no quarteirão): **$dominant** reacende por atrito com o real, não por deliberação abstrata. **$secondary** pode guardar o sentido maior enquanto isso."
+
+            lower.contains("eufóri") || lower.contains("eufori") || lower.contains("empolgad") || lower.contains("decisão") || lower.contains("decisao") || lower.contains("oportunidade") ->
+                "A expansão tem sua própria vertigem: **$dominant** puxa para o salto enquanto **$secondary** pede lastro. Nem freio total, nem voo cego — a sabedoria aqui é projetar o paraquedas antes de pular: defina o menor experimento reversível que testa a oportunidade. $somaticContext Euforia com método vira conquista; sem método, vira ressaca."
+
+            lower.contains("ciúme") || lower.contains("ciume") || lower.contains("comparação") || lower.contains("comparacao") || lower.contains("inveja") ->
+                "A comparação mede seu bastidor com o palco alheio — jogo em que sempre se perde. O que **$dominant** inveja no outro é, no fundo, um desejo próprio ainda sem endereço. $somaticContext Devolva a pergunta a si: se ninguém estivesse olhando, o que **$secondary** escolheria cultivar? A resposta a essa pergunta é o seu norte, não o feed alheio."
+
+            else -> {
+                val genericOpeners = listOf(
+                    "Aquilo que você expressou revela como **$dominant** e **$secondary** estão tecendo um diálogo silencioso nos bastidores da sua atenção.",
+                    "Por trás das suas palavras, **$dominant** e **$secondary** disputam a cena — e essa disputa, bem lida, é um mapa, não um veredito.",
+                    "O que você trouxe mostra **$dominant** em primeiro plano com **$secondary** operando no fundo, como baixo-contínuo de uma peça maior."
+                )
+                genericOpeners[rng.nextInt(genericOpeners.size)] + " Muitas vezes, tratamos nossos estados internos como problemas a serem resolvidos rapidamente, quando na verdade eles são **paisagens a serem compreendidas**. $somaticContext Ao externalizar essas esferas na tela e dar a cada uma sua cor, seu peso e seu lugar exato no espaço, você já deixou de estar misturado à névoa do sentimento e assumiu o lugar de quem observa com lucidez e gentileza."
+            }
         }
     }
 
     /**
-     * Concrete, 3-step neuro-sensory somatic practice tailored to the user's topology & biofeedback.
+     * Modular somatic practice composer: combines validated body techniques with
+     * metaphors drawn from the user's spheres. Modules are seeded per reading,
+     * so each reading assembles an unprecedented 3-step combination.
      */
+    private fun breathingModule(variant: Int, primary: String, arousal: Float): String {
+        val slow = arousal < 0.45f
+        return when (variant) {
+            0 -> "**Respiração de Tônus Vagal (4s/6s):** inspire pelo nariz em 4s acolhendo **$primary**; solte pela boca em 6s deixando o peso escorrer para o chão." + if (slow) " Repita 5 ciclos em ritmo de maré." else " Repita 3 ciclos, depois 1 suspiro longo de descarga."
+            1 -> "**Respiração Diafragmática com Mãos no Ventre:** deite as mãos sobre o abdômen e encha-o como um balão em 5s; esvazie em 5s. 6 ciclos sentindo **$primary** subir e descer com a maré do ar."
+            2 -> "**Respiração Quadrada de Estabilização:** inspire 4s, segure 4s, solte 4s, pause 4s — desenhando mentalmente um quadrado. 4 voltas para dar contorno firme a **$primary**."
+            else -> "**Exalação Alongada de Descarga:** inspire normal pelo nariz e solte pela boca o dobro do tempo, com um suspiro audível no final. 5 vezes, imaginando **$primary** perdendo voltagem a cada ciclo."
+        }
+    }
+
+    private fun gazeModule(variant: Int, primary: String, secondary: String): String {
+        return when (variant) {
+            0 -> "**Descompressão do Olhar (Visão Periférica):** fixando um ponto suave entre **$primary** e **$secondary**, abra a atenção para as bordas do campo visual sem mover a cabeça. 60 segundos: sair da visão em túnel desliga o alerta simpático."
+            1 -> "**Varredura Lenta do Horizonte:** gire apenas os olhos da esquerda à direita, bem devagar, como quem lê o horizonte. 6 travessias completas, deixando **$primary** desfocar e voltar — treino de flexibilidade atencional."
+            else -> "**Piscar Consciente e Foco Macio:** pisque devagar 10 vezes e repouse o olhar num ponto distante (janela, parede). A cada piscada, solte um microtensão ligada a **$secondary**."
+        }
+    }
+
+    private fun tactileModule(variant: Int, primary: String, secondary: String, valence: Float): String {
+        val gentle = valence < 0.45f
+        return when (variant) {
+            0 -> "**Enraizamento Postural 5-4-3-2-1:** nomeie 5 coisas que vê, 4 que toca, 3 que ouve, 2 que cheira, 1 que saboreia — ancorando **$primary** no presente sensorial." + if (gentle) " Faça sentado, sem pressa." else " Faça em pé, sentindo os pés no chão a cada item."
+            1 -> "**Relaxamento Muscular Progressivo (ombros–mandíbula–mãos):** tensione ombros por 5s e solte; cerre a mandíbula 5s e solte com a língua solta; aperte os punhos 5s e abra. Despeje **$secondary** junto com cada soltura."
+            2 -> "**Auto-toque de Contenção:** cruze os braços e segure os próprios ombros com pressão firme por 30s, respirando fundo — oferecendo a **$primary** a contenção que o sistema pede."
+            else -> "**Varredura Corporal de 60 Segundos:** percorra mentalmente pés→pernas→ventre→peito→rosto, nomeando onde **$secondary** mora hoje e soltando só aquele ponto com uma exalação."
+        }
+    }
+
+    private fun listeningModule(variant: Int, primary: String, secondary: String, focus: Float): String {
+        val deep = focus > 0.6f
+        return when (variant) {
+            0 -> "**Escuta Harmônica Guiada:** feche os olhos por " + if (deep) "90" else "45" + " segundos ouvindo apenas a paisagem pentatônica do app; a cada nota, imagine **$primary** e **$secondary** trocando de lugar no espaço."
+            1 -> "**Batida e Nomeação:** bata de leve dois dedos no peito em ritmo lento e nomeie em voz baixa o que sente a cada 4 batidas — dando a **$primary** um ritmo externo para se organizar."
+            else -> "**Silêncio Compartilhado:** desligue-se de tudo por 1 minuto e conte apenas as respirações até 10, recomeçando ao se perder. Cada recomeço é **$secondary** sendo reintegrado sem julgamento."
+        }
+    }
+
     private fun buildDeepSomaticPractice(
         languageCode: String,
         arousal: Float,
@@ -1041,7 +1270,8 @@ class GroundingAndAiService(private val context: Context) {
         focus: Float,
         concepts: List<String>,
         topology: SpatialTopologyAnalysis,
-        userPrompt: String
+        userPrompt: String,
+        seed: Long
     ): String {
         val primary = topology.dominantSphere?.name ?: concepts.firstOrNull() ?: "Harmonia"
         val secondary = topology.closestAffinityPair?.second?.name
@@ -1049,19 +1279,34 @@ class GroundingAndAiService(private val context: Context) {
             ?: "Presença"
 
         if (languageCode.lowercase() != "pt") {
+            val rngEn = Random(seed)
+            val breathEn = listOf(
+                "Inhale 4s through the nose welcoming **$primary**; exhale 6s through the mouth letting the weight sink.",
+                "Belly breathing with hands on the abdomen, 5s in / 5s out, 6 rounds.",
+                "Box breathing 4-4-4-4 for 4 rounds to give **$primary** a firm contour."
+            )
+            val bodyEn = listOf(
+                "Soften your gaze to the room edges for 60s without moving your head.",
+                "Progressive release: shoulders 5s tense-and-let-go, jaw unclench, fists open.",
+                "5-4-3-2-1 sensory grounding: name 5 seen, 4 touched, 3 heard, 2 smelled, 1 tasted."
+            )
             return buildString {
                 appendLine("**3-Step Embodied Reconfiguration ($primary · $secondary):**")
-                appendLine("- **1. Optic Nerve Decompression (Peripheral Gaze):** Soften your eyes on the screen and simultaneously notice the left and right edges of your room without turning your head. Expanding peripheral vision switches off the amygdala's tunnel-vision alert.")
-                appendLine("- **2. Vagal Resonance Breath (4s / 6s):** Inhale gently through your nose for 4 seconds while welcoming **$primary**; exhale slowly through your mouth for 6 seconds while letting the weight of **$secondary** settle into the floor.")
-                appendLine("- **3. Proprioceptive Release:** Drop your shoulders two centimeters, unclench your jaw, and listen for 20 seconds to the 432Hz pentatonic harmony playing in the background.")
+                appendLine("- **1. Breath:** ${breathEn[rngEn.nextInt(breathEn.size)]}")
+                appendLine("- **2. Body:** ${bodyEn[rngEn.nextInt(bodyEn.size)]}")
+                appendLine("- **3. Listening:** Close your eyes for 45 seconds following only the background harmony, imagining **$primary** and **$secondary** trading places.")
             }.trim()
         }
 
+        val rng = Random(seed + primary.length * 31L + secondary.length)
         return buildString {
-            appendLine("**Prática Somática em 3 Passos ($primary ↔ $secondary):**")
-            appendLine("- **1. Descompressão do Nervo Óptico (Visão Periférica):** Olhando para o brilho suave das esferas de **$primary** e **$secondary**, amplie sua visão lateral para perceber os dois cantos da sala ao mesmo tempo, sem mover a cabeça. Na neurofisiologia, sair da visão em túnel e abrir a visão periférica desativa imediatamente o reflexo de alerta simpático.")
-            appendLine("- **2. Respiração de Tônus Vagal (Ciclo 4s / 6s):** Inspire suavemente pelo nariz contando 4 segundos, sentindo espaço se abrir no tórax; solte o ar lentamente pela boca durante 6 segundos, como se deixasse o peso acumulado das esferas escorrer para o chão.")
-            appendLine("- **3. Soltura Proprioceptiva e Escuta:** Destrave os dentes, deixe a língua repousar solta no céu da boca e solte o peso dos ombros. Feche os olhos por 20 segundos acompanhando apenas a respiração das notas pentatônicas em 432Hz que estão tocando agora.")
+            appendLine("**Prática Inédita em 3 Passos ($primary ↔ $secondary):**")
+            appendLine("- **1. " + breathingModule(rng.nextInt(4), primary, arousal))
+            appendLine("- **2. " + listOf(
+                gazeModule(rng.nextInt(3), primary, secondary),
+                tactileModule(rng.nextInt(4), primary, secondary, valence)
+            )[rng.nextInt(2)])
+            appendLine("- **3. " + listeningModule(rng.nextInt(3), primary, secondary, focus))
         }.trim()
     }
 

@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -85,6 +86,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ai.LocalLlmEngine
+import com.example.ai.LlmPrefs
+import com.example.ai.OllamaEngine
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.JournalEntryEntity
@@ -453,7 +456,7 @@ fun SystemsAndByokScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Section 3.5: Motor Neural Local (Qwen 2.5 1.5B via MediaPipe)
+        // Section 3.5: Modelo Qwen no aparelho (.task MediaPipe)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -463,6 +466,20 @@ fun SystemsAndByokScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             LocalLlmManagerCard(strings = strings)
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Section 3.6: Servidor Ollama (alternativa ao modelo no aparelho)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("ollama_server_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            OllamaManagerCard()
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1222,7 +1239,9 @@ private data class SnapshotParticle(
 )
 
 /**
- * Local LLM Manager Card - Handles Qwen 2.5 1.5B model download/management
+ * On-device model manager: Qwen .task slots (full ~1.6 GB / lite ~550 MB),
+ * internal/SD storage choice (SD only when detected), download with progress,
+ * .task import from file picker, delete.
  */
 @Composable
 private fun LocalLlmManagerCard(
@@ -1231,26 +1250,31 @@ private fun LocalLlmManagerCard(
     val context = LocalContext.current
     val localLlm = remember { LocalLlmEngine(context) }
     var state by remember { mutableStateOf<LocalLlmEngine.State>(LocalLlmEngine.State.NotStarted) }
-    var showDownloadConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    // Observe state changes
+    var storage by remember { mutableStateOf(LlmPrefs.getStorage(context)) }
+    var slot by remember { mutableStateOf(LlmPrefs.getSlot(context)) }
+    val hasSd = remember { localLlm.hasSdCard() }
+
     LaunchedEffect(localLlm) {
-        localLlm.onStateChange = { newState ->
-            state = newState
-        }
-        // Check initial state
-        if (localLlm.isModelDownloaded()) {
-            state = LocalLlmEngine.State.Ready
+        localLlm.onStateChange = { newState -> state = newState }
+        if (localLlm.isModelDownloaded()) state = LocalLlmEngine.State.Ready
+    }
+
+    LaunchedEffect(slot, storage) {
+        LlmPrefs.setSlot(context, slot)
+        LlmPrefs.setStorage(context, storage)
+        state = if (localLlm.isModelDownloaded()) {
+            LocalLlmEngine.State.Ready
+        } else {
+            LocalLlmEngine.State.NotStarted
         }
     }
 
-    // Capture state in local val to allow smart casts (state is a delegated property)
     val currentState = state
-
-    val isDownloading = currentState is LocalLlmEngine.State.Downloading
-    val isInitializing = currentState is LocalLlmEngine.State.Initializing
+    val isBusy = currentState is LocalLlmEngine.State.Downloading ||
+        currentState is LocalLlmEngine.State.Initializing
     val isReady = currentState is LocalLlmEngine.State.Ready
     val errorMessage = (currentState as? LocalLlmEngine.State.Error)?.message
     val downloadProgress = when (currentState) {
@@ -1261,31 +1285,89 @@ private fun LocalLlmManagerCard(
     val downloadedMb = (currentState as? LocalLlmEngine.State.Downloading)?.downloadedMb ?: 0L
     val totalMb = (currentState as? LocalLlmEngine.State.Downloading)?.totalMb ?: 0L
 
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            try {
+                var size = -1L
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0 && c.moveToFirst()) size = c.getLong(idx)
+                }
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream == null) {
+                    state = LocalLlmEngine.State.Error("Não foi possível abrir o arquivo.")
+                } else {
+                    localLlm.importFromStream(stream, size)
+                }
+            } catch (e: Exception) {
+                state = LocalLlmEngine.State.Error(e.message ?: "falha na importação")
+            }
+        }
+    }
+
     Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Default.CloudDownload,
-                contentDescription = "Motor Neural Local",
+                contentDescription = "Modelo no aparelho",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Motor Neural Local (Qwen 2.5 1.5B)",
+                text = "Modelo Neural no Aparelho (Qwen .task)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "~900 MB • Roda 100% offline • Aceleração GPU/NPU • Multilíngue nativo (PT, EN, ES, FR)",
+            text = "Completo Qwen 2.5 1.5B (~1,6 GB, aparelhos potentes) ou leve Qwen 2.5 0.5B (~550 MB, menos RAM). Roda 100% offline. Use Wi-Fi.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = slot == LlmPrefs.SLOT_FULL,
+                onClick = { slot = LlmPrefs.SLOT_FULL },
+                label = { Text("1.5B completo") }
+            )
+            FilterChip(
+                selected = slot == LlmPrefs.SLOT_LITE,
+                onClick = { slot = LlmPrefs.SLOT_LITE },
+                label = { Text("0.5B leve") }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = storage == LlmPrefs.STORAGE_INTERNAL,
+                onClick = { storage = LlmPrefs.STORAGE_INTERNAL },
+                label = { Text("Interno") }
+            )
+            if (hasSd) {
+                FilterChip(
+                    selected = storage == LlmPrefs.STORAGE_SD,
+                    onClick = { storage = LlmPrefs.STORAGE_SD },
+                    label = { Text("Cartão SD") }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Status Display
         AnimatedVisibility(visible = errorMessage != null) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -1316,14 +1398,14 @@ private fun LocalLlmManagerCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "✅ Modelo pronto (${localLlm.getModelSizeMb()} MB)",
+                            text = "✅ ${localLlm.slotLabel()} pronto (${localLlm.getModelSizeMb()} MB, ${localLlm.getStorageLabel()})",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Text(
-                            text = "Motor neural local ativo — usado automaticamente quando não há provedor BYOK",
+                            text = "Usado automaticamente nas leituras (sem BYOK).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                         )
@@ -1334,36 +1416,30 @@ private fun LocalLlmManagerCard(
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Remover modelo",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Remover",
-                            color = MaterialTheme.colorScheme.error
-                        )
+                        Text(text = "Remover", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         }
 
-        AnimatedVisibility(visible = isDownloading || isInitializing) {
+        AnimatedVisibility(visible = isBusy) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                LinearProgressIndicator(
-                    progress = downloadProgress,
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                if (downloadProgress >= 0f) {
+                    LinearProgressIndicator(
+                        progress = { downloadProgress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (isDownloading) {
-                        "Baixando modelo... ${(downloadProgress * 100).toInt()}% (${downloadedMb} / ${totalMb} MB)"
+                    text = if (totalMb > 0 && downloadProgress >= 0f) {
+                        "Baixando... ${(downloadProgress * 100).toInt()}% ($downloadedMb / $totalMb MB)"
+                    } else if (downloadProgress >= 0f) {
+                        "Baixando... ${(downloadProgress * 100).toInt()}%"
                     } else {
-                        "Inicializando motor neural... ${(downloadProgress * 100).toInt()}%"
+                        "Trabalhando no modelo..."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1371,47 +1447,20 @@ private fun LocalLlmManagerCard(
             }
         }
 
-        AnimatedVisibility(visible = !isReady && !isDownloading && !isInitializing && errorMessage == null) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "O modelo neural local será baixado na primeira vez que você gerar uma reflexão (sem provedor BYOK).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "💡 Dica: Baixe agora via Wi-Fi para evitar uso de dados móveis depois.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-
-        // Action Buttons
         Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (!isReady && !isDownloading && !isInitializing) {
+            if (!isReady && !isBusy) {
                 Button(
-                    onClick = { showDownloadConfirm = true },
-                    enabled = true,
+                    onClick = {
+                        coroutineScope.launch { localLlm.initialize() }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .testTag("download_local_model_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CloudDownload,
@@ -1419,46 +1468,26 @@ private fun LocalLlmManagerCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Baixar Modelo (~900 MB)", style = MaterialTheme.typography.labelLarge)
+                    Text("Baixar", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            if (!isBusy) {
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Importar .task")
                 }
             }
         }
 
-        // Download Confirmation Dialog
-        if (showDownloadConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDownloadConfirm = false },
-                title = { Text("Baixar Modelo Neural Local") },
-                text = {
-                    Text(
-                        "O modelo Qwen 2.5 1.5B (~900 MB) será baixado e armazenado no armazenamento interno do app. Requer conexão estável (Wi-Fi recomendado).\n\nApós o download, o motor neural roda 100% offline."
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showDownloadConfirm = false
-                            coroutineScope.launch {
-                                localLlm.initialize()
-                            }
-                        }
-                    ) { Text("Baixar Agora") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDownloadConfirm = false }) { Text("Cancelar") }
-                }
-            )
-        }
-
-        // Delete Confirmation Dialog
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Remover Modelo Neural") },
+                title = { Text("Remover modelo") },
                 text = {
-                    Text(
-                        "O modelo local (~${localLlm.getModelSizeMb()} MB) será removido do armazenamento. Você poderá baixá-lo novamente quando quiser."
-                    )
+                    Text("O modelo (${localLlm.getModelSizeMb()} MB) será removido. Você poderá baixá-lo de novo quando quiser.")
                 },
                 confirmButton = {
                     Button(
@@ -1476,6 +1505,142 @@ private fun LocalLlmManagerCard(
                     TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
                 }
             )
+        }
+    }
+}
+
+/**
+ * Ollama server manager: host/model fields, connection test, model pull with progress.
+ * O Ollama roda no PC/servidor — o app só o alcança na mesma rede.
+ */
+@Composable
+private fun OllamaManagerCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var host by remember { mutableStateOf(LlmPrefs.getHost(context)) }
+    var model by remember { mutableStateOf(LlmPrefs.getModel(context)) }
+    var busy by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(-1f) }
+    var status by remember { mutableStateOf("") }
+    var lastPct by remember { mutableStateOf(-1) }
+
+    fun engine() = OllamaEngine(
+        host = host.ifBlank { LlmPrefs.DEFAULT_HOST },
+        model = model.ifBlank { LlmPrefs.DEFAULT_MODEL }
+    )
+
+    fun postProgress(p: Float, s: String) {
+        val pct = if (p >= 0f) (p * 100).toInt() else -1
+        if (pct != lastPct || status != s) {
+            lastPct = pct
+            progress = p
+            status = if (pct >= 0) "$s · $pct%" else s.ifBlank { status }
+        }
+    }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Hub,
+                contentDescription = "Servidor Ollama",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Servidor Ollama (alternativa)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Rode `ollama serve` no PC (mesma Wi-Fi) e `ollama run qwen2.5:1.5b`. Modelos: qwen2.5:1.5b, qwen2.5-coder:0.5b.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedTextField(
+            value = host,
+            onValueChange = { host = it },
+            label = { Text("Endereço (ex: http://192.168.1.10:11434)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            label = { Text("Modelo (ex: qwen2.5:1.5b)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        if (busy && progress >= 0f) {
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        } else if (busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        if (status.isNotBlank()) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        progress = -1f
+                        status = "testando..."
+                        LlmPrefs.setHost(context, host)
+                        LlmPrefs.setModel(context, model)
+                        val eng = engine()
+                        val ok = eng.checkReachable()
+                        status = if (ok) {
+                            val models = eng.listModels()
+                            if (models.isEmpty()) "Servidor OK, nenhum modelo instalado."
+                            else "Servidor OK: " + models.take(4).joinToString(", ")
+                        } else {
+                            "Inalcançável. Confira IP/porta e `ollama serve`."
+                        }
+                        busy = false
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Testar") }
+            Button(
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        progress = -1f
+                        status = "iniciando..."
+                        lastPct = -1
+                        LlmPrefs.setHost(context, host)
+                        LlmPrefs.setModel(context, model)
+                        val res = engine().pullModel { p, s -> postProgress(p, s) }
+                        status = if (res.isSuccess) "Modelo pronto no servidor ✅"
+                        else "Falha: ${res.exceptionOrNull()?.message}"
+                        busy = false
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Baixar no servidor") }
         }
     }
 }

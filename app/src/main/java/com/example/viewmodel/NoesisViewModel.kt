@@ -512,6 +512,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
                 val activeProvider = state.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
                 val effectiveLang = AppLanguage.resolveEffectiveLanguage(state.preferences.language)
+                val ollamaHost = com.example.ai.LlmPrefs.getHost(getApplication())
+                val ollamaModel = com.example.ai.LlmPrefs.getModel(getApplication())
 
                 val result = networkService.orchestrateConsciousSimulation(
                     userPrompt = promptToUse,
@@ -527,6 +529,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     activeBaseUrl = activeProvider?.baseUrl,
                     activeApiKey = activeProvider?.apiKey,
                     activeModelId = activeProvider?.selectedModel,
+                    ollamaHost = ollamaHost,
+                    ollamaModel = ollamaModel,
                     onStageProgress = { stageMsg ->
                         _simulationProgressText.value = stageMsg
                     }
