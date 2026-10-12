@@ -3,15 +3,10 @@ package com.example.ai
 import android.content.Context
 import android.util.Log
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceOptions
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -28,7 +23,6 @@ import okhttp3.Request
 class LocalLlmEngine(private val context: Context) {
 
     private var llmInference: LlmInference? = null
-    private var initializationScope: CoroutineScope? = null
     
     // Modelo Qwen 2.5 1.5B Instruct Q4_K_M (oficial MediaPipe/HuggingFace)
     private val modelFileName = "qwen2.5-1.5b-instruct-q4_k_m.task"
@@ -46,12 +40,12 @@ class LocalLlmEngine(private val context: Context) {
     }
 
     /** Estado atual do motor */
-    sealed class State {
-        data class Downloading(val progress: Float, val downloadedMb: Long, val totalMb: Long) : State()
-        data class Initializing(val progress: Float) : State()
-        object Ready : State()
-        data class Error(val message: String) : State()
-        object NotStarted : State()
+    sealed interface State {
+        data class Downloading(val progress: Float, val downloadedMb: Long, val totalMb: Long) : State
+        data class Initializing(val progress: Float) : State
+        object Ready : State
+        data class Error(val message: String) : State
+        object NotStarted : State
     }
 
     /** Callback para updates de estado */
@@ -76,14 +70,11 @@ class LocalLlmEngine(private val context: Context) {
             
             emit(State.Initializing(0.5f))
             
-            // Carrega no MediaPipe com GPU delegate
-            val options = LlmInferenceOptions.builder()
+            // Carrega no MediaPipe via createFromOptions (API oficial)
+            val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(2048)
-                .setTemperature(0.74f)
-                .setTopK(40)
-                .setTopP(0.95f)
-                .setEnableVision(false)
+                .setTemperature(0.7f)
                 .build()
             
             llmInference = LlmInference.createFromOptions(context, options)
@@ -104,14 +95,14 @@ class LocalLlmEngine(private val context: Context) {
             val errorMsg = when (e) {
                 is java.lang.OutOfMemoryError -> "Memória insuficiente para carregar o modelo (precisa ~1.2 GB RAM livre)"
                 is java.io.IOException -> "Erro de I/O: ${e.message}"
-                else -> "Erro ao inicializar: ${e.message ?: e.class.simpleName}"
+                else -> "Erro ao inicializar: ${e.message ?: e::class.simpleName}"
             }
             emit(State.Error(errorMsg))
             Result.failure(e)
         }
     }
 
-    /** Gera resposta completa com streaming (system prompt + user message) */
+    /** Gera resposta completa (system prompt + user message) */
     suspend fun generate(
         systemPrompt: String,
         userMessage: String,
@@ -121,15 +112,13 @@ class LocalLlmEngine(private val context: Context) {
             ensureInitialized()
             
             val fullPrompt = buildChatPrompt(systemPrompt, userMessage)
-            val response = StringBuilder()
             
-            // Streaming response via callback
-            llmInference?.generateResponse(fullPrompt) { partial ->
-                response.append(partial)
-                onPartial(response.toString())
-            }
+            // MediaPipe generateResponse retorna String diretamente (não é streaming callback)
+            val generated = llmInference?.generateResponse(fullPrompt) ?: ""
             
-            val finalText = response.toString().trim()
+            onPartial(generated)
+            
+            val finalText = generated.trim()
             if (finalText.length < 20) {
                 return@withContext Result.failure(IllegalStateException("Resposta muito curta: $finalText"))
             }
@@ -143,7 +132,7 @@ class LocalLlmEngine(private val context: Context) {
 
     /** Constrói prompt no formato ChatML compatível com Qwen */
     private fun buildChatPrompt(system: String, user: String): String {
-        return "<|im_start|>system\n$system<|im_end|>\n<|im_start|>user\n$user<|im_end|>\n<|im_start|>assistant\n"
+        return "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" + user + "<|im_end|>\n<|im_start|>assistant\n"
     }
 
     /** Verifica se modelo já foi baixado */

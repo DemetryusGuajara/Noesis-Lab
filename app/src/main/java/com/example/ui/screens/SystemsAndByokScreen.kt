@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -57,8 +58,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -90,6 +93,7 @@ import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -458,11 +462,7 @@ fun SystemsAndByokScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
-            LocalLlmManagerCard(
-                strings = strings,
-                onDownloadClick = { /* handled inside */ },
-                onDeleteClick = { /* handled inside */ }
-            )
+            LocalLlmManagerCard(strings = strings)
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1220,7 +1220,6 @@ private data class SnapshotParticle(
     val posX: Float,
     val posY: Float
 )
-}
 
 /**
  * Local LLM Manager Card - Handles Qwen 2.5 1.5B model download/management
@@ -1231,7 +1230,7 @@ private fun LocalLlmManagerCard(
 ) {
     val context = LocalContext.current
     val localLlm = remember { LocalLlmEngine(context) }
-    var state by remember { mutableStateOf(LocalLlmEngine.State.NotStarted) }
+    var state by remember { mutableStateOf<LocalLlmEngine.State>(LocalLlmEngine.State.NotStarted) }
     var showDownloadConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -1247,35 +1246,20 @@ private fun LocalLlmManagerCard(
         }
     }
 
-    val isDownloading = when (state) {
-        is LocalLlmEngine.State.Downloading -> true
-        else -> false
-    }
-    val isInitializing = when (state) {
-        is LocalLlmEngine.State.Initializing -> true
-        else -> false
-    }
-    val isReady = when (state) {
-        LocalLlmEngine.State.Ready -> true
-        else -> false
-    }
-    val errorMessage = when (state) {
-        is LocalLlmEngine.State.Error -> state.message
-        else -> null
-    }
-    val downloadProgress = when (state) {
-        is LocalLlmEngine.State.Downloading -> state.progress
-        is LocalLlmEngine.State.Initializing -> state.progress
+    // Capture state in local val to allow smart casts (state is a delegated property)
+    val currentState = state
+
+    val isDownloading = currentState is LocalLlmEngine.State.Downloading
+    val isInitializing = currentState is LocalLlmEngine.State.Initializing
+    val isReady = currentState is LocalLlmEngine.State.Ready
+    val errorMessage = (currentState as? LocalLlmEngine.State.Error)?.message
+    val downloadProgress = when (currentState) {
+        is LocalLlmEngine.State.Downloading -> currentState.progress
+        is LocalLlmEngine.State.Initializing -> currentState.progress
         else -> 0f
     }
-    val downloadedMb = when (state) {
-        is LocalLlmEngine.State.Downloading -> state.downloadedMb
-        else -> 0L
-    }
-    val totalMb = when (state) {
-        is LocalLlmEngine.State.Downloading -> state.totalMb
-        else -> 0L
-    }
+    val downloadedMb = (currentState as? LocalLlmEngine.State.Downloading)?.downloadedMb ?: 0L
+    val totalMb = (currentState as? LocalLlmEngine.State.Downloading)?.totalMb ?: 0L
 
     Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1442,7 +1426,7 @@ private fun LocalLlmManagerCard(
 
         // Download Confirmation Dialog
         if (showDownloadConfirm) {
-            androidx.compose.material3.AlertDialog(
+            AlertDialog(
                 onDismissRequest = { showDownloadConfirm = false },
                 title = { Text("Baixar Modelo Neural Local") },
                 text = {
@@ -1468,7 +1452,7 @@ private fun LocalLlmManagerCard(
 
         // Delete Confirmation Dialog
         if (showDeleteConfirm) {
-            androidx.compose.material3.AlertDialog(
+            AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
                 title = { Text("Remover Modelo Neural") },
                 text = {
