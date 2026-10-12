@@ -302,7 +302,9 @@ fun NarrativeOracleScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(strings.synthesizingMessage)
+                        Text(
+                            text = uiState.simulationProgressText.ifBlank { strings.synthesizingMessage }
+                        )
                     } else {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,

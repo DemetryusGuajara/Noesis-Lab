@@ -3,6 +3,7 @@ package com.example.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -51,9 +52,9 @@ data class OrchestratedSimulationResult(
 
 class GroundingAndAiService {
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val pingClient = OkHttpClient.Builder()
@@ -62,10 +63,6 @@ class GroundingAndAiService {
         .writeTimeout(6, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * Fetches theoretical context silently in the background from Wikipedia and Crossref
-     * so the AI can weave rich insights without exposing academic citations or jargon to the user.
-     */
     suspend fun fetchLiveGrounding(
         queryConcepts: List<String>,
         userPrompt: String,
@@ -339,11 +336,12 @@ class GroundingAndAiService {
     }
 
     /**
-     * Orchestrates an accessible, warm, deeply insightful reading that combines:
-     * 1. The visual map of spheres from Tab 1 (emotions + abstract concepts + their weights & distances)
-     * 2. The user's current body/feeling sliders
-     * 3. The optional text written in Tab 3
-     * Background research from Wikipedia & academic literature informs the depth silently, NEVER shown raw to the user.
+     * Multi-Stage Cascading AI Orchestrator ("Zero-Config Cloud + Local Emergency Fallback"):
+     * 1. If user explicitly configured a BYOK provider, try that first.
+     * 2. Cascade Stage 1: LLM7.io Free Anonymous OpenAI-Compatible API (`https://api.llm7.io/v1/chat/completions`)
+     * 3. Cascade Stage 2: Pollinations.ai Modern Free API (`https://gen.pollinations.ai/v1/chat/completions` & `https://text.pollinations.ai/openai`)
+     * 4. Cascade Stage 3: AI Horde / KoboldAI Volunteer Cluster (`https://aihorde.net/api/v2/generate/text/async` with anonymous key `0000000000`, max 15s polling)
+     * 5. Emergency Local Engine: Instantaneous on-device synthesis if all 3 free servers time out or user is offline.
      */
     suspend fun orchestrateConsciousSimulation(
         userPrompt: String,
@@ -357,9 +355,9 @@ class GroundingAndAiService {
         activeProviderName: String?,
         activeBaseUrl: String?,
         activeApiKey: String?,
-        activeModelId: String?
+        activeModelId: String?,
+        onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
-        // Silent background enrichment (never displayed in UI)
         val grounding = fetchLiveGrounding(
             queryConcepts = conceptNames,
             userPrompt = userPrompt,
@@ -389,57 +387,98 @@ class GroundingAndAiService {
             (Notas silenciosas de bastidores para inspiração: $silentBackgroundNotes)
         """.trimIndent()
 
+        // Step 0: Optional Custom BYOK Provider (if user configured one)
         if (!activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()) {
-            val cleanBase = normalizeOpenAiBaseUrl(activeBaseUrl)
-            val payload = JSONObject().apply {
-                put("model", activeModelId)
-                put("messages", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "system")
-                        put("content", systemPrompt)
-                    })
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", userMessage)
-                    })
-                })
-                put("temperature", 0.7)
-            }
-
-            val aiResult = runCatching {
-                val reqBuilder = Request.Builder()
-                    .url("$cleanBase/chat/completions")
-                    .header("Content-Type", "application/json")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                if (!activeApiKey.isNullOrBlank()) {
-                    reqBuilder.header("Authorization", "Bearer ${activeApiKey.trim()}")
-                }
-
-                httpClient.newCall(reqBuilder.build()).execute().use { resp ->
-                    if (!resp.isSuccessful) return@runCatching null
-                    val bodyStr = resp.body?.string() ?: return@runCatching null
-                    val content = JSONObject(bodyStr)
-                        .optJSONArray("choices")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("message")
-                        ?.optString("content")
-                    content?.takeIf { it.isNotBlank() }
-                }
-            }.getOrNull()
-
-            if (aiResult != null) {
-                val parts = aiResult.split("---SOMATIC---")
-                val mainNarrative = parts[0].trim()
-                val somatic = if (parts.size > 1) parts[1].trim() else buildLocalizedSomaticShift(languageCode, arousal, valence, conceptNames)
-                return@withContext OrchestratedSimulationResult(
-                    narrativeMarkdown = mainNarrative,
-                    somaticShiftSuggestion = somatic,
+            onStageProgress("Conectando ao provedor personalizado ($activeProviderName)...")
+            val byokText = callOpenAiCompatibleEndpoint(
+                endpointUrl = "${normalizeOpenAiBaseUrl(activeBaseUrl)}/chat/completions",
+                apiKey = activeApiKey,
+                modelId = activeModelId,
+                systemPrompt = systemPrompt,
+                userMessage = userMessage
+            )
+            if (byokText != null) {
+                return@withContext parseIntoSimulationResult(
+                    rawResponse = byokText,
                     providerLabel = "${activeProviderName ?: "BYOK"} · $activeModelId",
+                    languageCode = languageCode,
+                    arousal = arousal,
+                    valence = valence,
+                    conceptNames = conceptNames,
                     grounding = grounding
                 )
             }
         }
 
+        // Hardcoded Free Cloud Cascade Stage 1: LLM7.io Anonymous OpenAI-Compatible Endpoint
+        onStageProgress("Estamos desenhando sua experiência (Nuvem 1/3: LLM7 Open Cluster)...")
+        val llm7Response = callOpenAiCompatibleEndpoint(
+            endpointUrl = "https://api.llm7.io/v1/chat/completions",
+            apiKey = "unused",
+            modelId = "default",
+            systemPrompt = systemPrompt,
+            userMessage = userMessage
+        )
+        if (llm7Response != null) {
+            return@withContext parseIntoSimulationResult(
+                rawResponse = llm7Response,
+                providerLabel = "Nuvem Gratuita · LLM7.io",
+                languageCode = languageCode,
+                arousal = arousal,
+                valence = valence,
+                conceptNames = conceptNames,
+                grounding = grounding
+            )
+        }
+
+        // Hardcoded Free Cloud Cascade Stage 2: Pollinations.ai Free Endpoints (gen.pollinations.ai & text.pollinations.ai)
+        onStageProgress("Estamos desenhando sua experiência (Nuvem 2/3: Pollinations AI)...")
+        val pollinationsResponse = callOpenAiCompatibleEndpoint(
+            endpointUrl = "https://gen.pollinations.ai/v1/chat/completions",
+            apiKey = null,
+            modelId = "openai",
+            systemPrompt = systemPrompt,
+            userMessage = userMessage
+        ) ?: callOpenAiCompatibleEndpoint(
+            endpointUrl = "https://text.pollinations.ai/openai",
+            apiKey = null,
+            modelId = "openai",
+            systemPrompt = systemPrompt,
+            userMessage = userMessage
+        )
+        if (pollinationsResponse != null) {
+            return@withContext parseIntoSimulationResult(
+                rawResponse = pollinationsResponse,
+                providerLabel = "Nuvem Gratuita · Pollinations AI",
+                languageCode = languageCode,
+                arousal = arousal,
+                valence = valence,
+                conceptNames = conceptNames,
+                grounding = grounding
+            )
+        }
+
+        // Hardcoded Free Cloud Cascade Stage 3: AI Horde / KoboldAI Volunteer Cluster (Max 15s wait)
+        onStageProgress("Estamos desenhando sua experiência (Nuvem 3/3: AI Horde Comunitária)...")
+        val hordeResponse = callAiHordeFreeCluster(
+            systemPrompt = systemPrompt,
+            userMessage = userMessage,
+            maxWaitMs = 14000L
+        )
+        if (hordeResponse != null) {
+            return@withContext parseIntoSimulationResult(
+                rawResponse = hordeResponse,
+                providerLabel = "Nuvem Comunitária · AI Horde",
+                languageCode = languageCode,
+                arousal = arousal,
+                valence = valence,
+                conceptNames = conceptNames,
+                grounding = grounding
+            )
+        }
+
+        // Stage 4: Emergency On-Device Fallback (Qwen-style local synthesis, 0 latency, works 100% offline)
+        onStageProgress("Sintetizando diretamente no aparelho (Modo Local Instantâneo)...")
         val synthesized = synthesizeAccessibleNarrativeLocally(
             userPrompt = userPrompt,
             conceptNames = conceptNames,
@@ -453,7 +492,142 @@ class GroundingAndAiService {
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
-            providerLabel = "Noesis Creative Engine",
+            providerLabel = "Motor Local Integrado (Offline)",
+            grounding = grounding
+        )
+    }
+
+    private fun callOpenAiCompatibleEndpoint(
+        endpointUrl: String,
+        apiKey: String?,
+        modelId: String,
+        systemPrompt: String,
+        userMessage: String
+    ): String? {
+        return runCatching {
+            val payload = JSONObject().apply {
+                put("model", modelId)
+                put("messages", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    })
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("content", userMessage)
+                    })
+                })
+                put("temperature", 0.7)
+            }
+
+            val reqBuilder = Request.Builder()
+                .url(endpointUrl)
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "NoesisLab/1.0 (Android)")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+
+            if (!apiKey.isNullOrBlank() && apiKey != "unused") {
+                reqBuilder.header("Authorization", "Bearer ${apiKey.trim()}")
+            }
+
+            httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching null
+                val bodyStr = resp.body?.string() ?: return@runCatching null
+                val content = JSONObject(bodyStr)
+                    .optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content")
+                content?.trim()?.takeIf { it.length > 25 }
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Queries the decentralized AI Horde / KoboldAI community cluster using the official
+     * anonymous key `0000000000`, polling up to 14 seconds for a volunteer GPU response.
+     */
+    private suspend fun callAiHordeFreeCluster(
+        systemPrompt: String,
+        userMessage: String,
+        maxWaitMs: Long = 14000L
+    ): String? {
+        return runCatching {
+            val fullPrompt = "<|im_start|>system\n$systemPrompt<|im_end|>\n<|im_start|>user\n$userMessage<|im_end|>\n<|im_start|>assistant\n"
+            val payload = JSONObject().apply {
+                put("prompt", fullPrompt)
+                put("params", JSONObject().apply {
+                    put("max_length", 320)
+                    put("max_context_length", 1536)
+                    put("temperature", 0.7)
+                })
+            }
+
+            val asyncReq = Request.Builder()
+                .url("https://aihorde.net/api/v2/generate/text/async")
+                .header("Content-Type", "application/json")
+                .header("apikey", "0000000000")
+                .header("Client-Agent", "NoesisLab:1.0:android")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val jobId = httpClient.newCall(asyncReq).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching null
+                val body = resp.body?.string() ?: return@runCatching null
+                JSONObject(body).optString("id", "").takeIf { it.isNotBlank() }
+            } ?: return@runCatching null
+
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < maxWaitMs) {
+                delay(2200L)
+                val statusReq = Request.Builder()
+                    .url("https://aihorde.net/api/v2/generate/text/status/$jobId")
+                    .header("Client-Agent", "NoesisLab:1.0:android")
+                    .get()
+                    .build()
+
+                val finishedText = httpClient.newCall(statusReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val statusJson = JSONObject(resp.body?.string() ?: "{}")
+                    if (statusJson.optBoolean("faulted", false) || !statusJson.optBoolean("is_possible", true)) {
+                        return@runCatching null
+                    }
+                    if (statusJson.optBoolean("done", false)) {
+                        val gens = statusJson.optJSONArray("generations")
+                        if (gens != null && gens.length() > 0) {
+                            gens.getJSONObject(0).optString("text", "").trim()
+                        } else null
+                    } else null
+                }
+
+                if (!finishedText.isNullOrBlank() && finishedText.length > 25) {
+                    return@runCatching finishedText
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
+    private fun parseIntoSimulationResult(
+        rawResponse: String,
+        providerLabel: String,
+        languageCode: String,
+        arousal: Float,
+        valence: Float,
+        conceptNames: List<String>,
+        grounding: GroundingBundle
+    ): OrchestratedSimulationResult {
+        val parts = rawResponse.split("---SOMATIC---")
+        val mainNarrative = parts[0].trim()
+        val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
+            parts[1].trim()
+        } else {
+            buildLocalizedSomaticShift(languageCode, arousal, valence, conceptNames)
+        }
+        return OrchestratedSimulationResult(
+            narrativeMarkdown = mainNarrative,
+            somaticShiftSuggestion = somatic,
+            providerLabel = providerLabel,
             grounding = grounding
         )
     }

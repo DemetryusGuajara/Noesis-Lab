@@ -49,6 +49,7 @@ data class NoesisUiState(
     val logs: List<SimulationLogEntity> = emptyList(),
     val providers: List<AiProviderEntity> = emptyList(),
     val isSimulating: Boolean = false,
+    val simulationProgressText: String = "",
     val latestGrounding: GroundingBundle? = null,
     val isVerifyingProvider: Boolean = false,
     val lastVerificationReport: ProviderVerificationReport? = null,
@@ -70,8 +71,9 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedParticleId = MutableStateFlow<Long?>(null)
     private val _selectedZoneId = MutableStateFlow<String?>("zone_time")
     private val _isSimulating = MutableStateFlow(false)
+    private val _simulationProgressText = MutableStateFlow("")
     private val _latestGrounding = MutableStateFlow<GroundingBundle?>(null)
-    private val _isVerifyingProvider = MutableStateFlow(false)
+    private val _isVerifyingProvider = MutableStateFlow<Boolean>(false)
     private val _lastVerificationReport = MutableStateFlow<ProviderVerificationReport?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
 
@@ -100,7 +102,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         Quint(tab, selPart, selZone, sim, extra)
     }
 
-    val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow) { core, trans ->
+    val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow, _simulationProgressText) { core, trans, progText ->
         val prefs = core.first
         val particles = core.second
         val zones = core.third
@@ -146,6 +148,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             logs = logs,
             providers = providers,
             isSimulating = trans.fourth,
+            simulationProgressText = progText,
             latestGrounding = _latestGrounding.value,
             isVerifyingProvider = trans.fifth.second,
             lastVerificationReport = trans.fifth.third,
@@ -327,6 +330,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         _currentTab.value = NoesisTab.ORACLE
         _isSimulating.value = true
+        _simulationProgressText.value = "Estamos desenhando sua experiência..."
         soundEngine.triggerTouchHarmonic(frequencyHz = 639f, valence = 0.75f, durationMs = 600)
 
         viewModelScope.launch {
@@ -350,7 +354,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     activeProviderName = activeProvider?.name,
                     activeBaseUrl = activeProvider?.baseUrl,
                     activeApiKey = activeProvider?.apiKey,
-                    activeModelId = activeProvider?.selectedModel
+                    activeModelId = activeProvider?.selectedModel,
+                    onStageProgress = { stageMsg ->
+                        _simulationProgressText.value = stageMsg
+                    }
                 )
 
                 _latestGrounding.value = result.grounding
