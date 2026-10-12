@@ -247,7 +247,7 @@ class GroundingAndAiService(private val context: Context) {
                         )
                     } else null
                 }
-            }
+            }.getOrNull()
         }
         for (candidate in candidates) {
             val result = attempt(candidate)
