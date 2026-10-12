@@ -51,20 +51,23 @@ jobs:
             cp .env.example .env
           fi
 
-      - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+      - name: Build Debug + Log APKs
+        run: gradle assembleDebug assembleLog --no-daemon
 
-      - name: Rename APK for Release
+      - name: Rename APKs for Release
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk NoesisLab-v1.0.${{ github.run_number }}.apk
+          cp app/build/outputs/apk/log/app-log.apk NoesisLab-v1.0.${{ github.run_number }}-log.apk
 
-      - name: Upload APK as Workflow Artifact
+      - name: Upload APKs as Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: NoesisLab-APK
-          path: NoesisLab-v1.0.${{ github.run_number }}.apk
+          name: NoesisLab-APKs
+          path: |
+            NoesisLab-v1.0.${{ github.run_number }}.apk
+            NoesisLab-v1.0.${{ github.run_number }}-log.apk
 
-      - name: Create GitHub Release and Attach APK
+      - name: Create GitHub Release and Attach APKs
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
@@ -73,7 +76,10 @@ jobs:
             ### Noesis Lab — Build Automático (#${{ github.run_number }})
             - **Commit:** `${{ github.sha }}`
             - **APK pronto para instalação:** Baixe o arquivo `NoesisLab-v1.0.${{ github.run_number }}.apk` abaixo em **Assets**.
-          files: NoesisLab-v1.0.${{ github.run_number }}.apk
+            - **Versão LOG (diagnóstico):** `NoesisLab-v1.0.${{ github.run_number }}-log.apk` — instala lado a lado (ícone "Noesis Lab LOG"), grava tudo em `Android/data/<pacote>/files/logs/` e copia o relatório de crash para `Downloads/NoesisLab/`. Use-a para reportar travamentos.
+          files: |
+            NoesisLab-v1.0.${{ github.run_number }}.apk
+            NoesisLab-v1.0.${{ github.run_number }}-log.apk
           draft: false
           prerelease: false
         env:
