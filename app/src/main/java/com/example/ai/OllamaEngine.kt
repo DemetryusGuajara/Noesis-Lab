@@ -13,7 +13,7 @@ import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 /**
- * Cliente do servidor Ollama (API nativa /api/*).
+ * Cliente do servidor Ollama (endpoints nativos /api/tags, /api/pull e /api/chat).
  *
  * O Ollama é um programa de SERVIDOR (PC/Mac/Linux ou Termux) — ele não roda
  * dentro do app. O app conversa com ele por HTTP:

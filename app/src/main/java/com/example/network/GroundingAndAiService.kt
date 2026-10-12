@@ -659,7 +659,8 @@ class GroundingAndAiService(private val context: Context) {
                         focus = focus,
                         concepts = titleCasedConcepts,
                         topology = topology,
-                        userPrompt = userPrompt
+                        userPrompt = userPrompt,
+                        seed = System.currentTimeMillis()
                     )
                 }
                 return@withContext OrchestratedSimulationResult(
