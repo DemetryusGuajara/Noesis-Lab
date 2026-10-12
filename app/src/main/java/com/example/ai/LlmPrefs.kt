@@ -24,6 +24,7 @@ object LlmPrefs {
     // URLs verificadas: download anônimo liberado (gated:false).
     const val SLOT_FULL = "full"
     const val SLOT_LITE = "lite"
+    const val SLOT_ULTRA = "ultra"
     const val KEY_SLOT = "model_slot"
 
     const val FULL_URL =
@@ -35,6 +36,11 @@ object LlmPrefs {
         "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
     const val LITE_FILE = "qwen25-05b-q8.task"
     const val LITE_MIN_BYTES = 150_000_000L
+
+    const val ULTRA_URL =
+        "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task"
+    const val ULTRA_FILE = "smollm-135m-q8.task"
+    const val ULTRA_MIN_BYTES = 50_000_000L
 
     fun getSlot(context: Context): String =
         prefs(context).getString(KEY_SLOT, SLOT_FULL) ?: SLOT_FULL

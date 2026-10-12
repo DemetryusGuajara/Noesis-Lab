@@ -1325,7 +1325,7 @@ private fun LocalLlmManagerCard(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Completo Qwen 2.5 1.5B (~1,6 GB, aparelhos potentes) ou leve Qwen 2.5 0.5B (~550 MB, menos RAM). Roda 100% offline. Use Wi-Fi.",
+            text = "Completo Qwen 2.5 1.5B (~1,6 GB), leve Qwen 2.5 0.5B (~550 MB) ou emergência SmolLM 135M (~150 MB). Roda 100% offline. Use Wi-Fi.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1344,6 +1344,11 @@ private fun LocalLlmManagerCard(
                 selected = slot == LlmPrefs.SLOT_LITE,
                 onClick = { slot = LlmPrefs.SLOT_LITE },
                 label = { Text("0.5B leve") }
+            )
+            FilterChip(
+                selected = slot == LlmPrefs.SLOT_ULTRA,
+                onClick = { slot = LlmPrefs.SLOT_ULTRA },
+                label = { Text("135M emergência") }
             )
         }
 

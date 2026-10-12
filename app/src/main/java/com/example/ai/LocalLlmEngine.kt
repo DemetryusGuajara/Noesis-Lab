@@ -55,17 +55,29 @@ class LocalLlmEngine(private val context: Context) {
 
     private fun slot(): String = LlmPrefs.getSlot(appContext)
 
-    private fun slotUrl(): String =
-        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_URL else LlmPrefs.FULL_URL
+    private fun slotUrl(): String = when (slot()) {
+        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_URL
+        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_URL
+        else -> LlmPrefs.FULL_URL
+    }
 
-    private fun slotFileName(): String =
-        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_FILE else LlmPrefs.FULL_FILE
+    private fun slotFileName(): String = when (slot()) {
+        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_FILE
+        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_FILE
+        else -> LlmPrefs.FULL_FILE
+    }
 
-    private fun slotMinBytes(): Long =
-        if (slot() == LlmPrefs.SLOT_LITE) LlmPrefs.LITE_MIN_BYTES else LlmPrefs.FULL_MIN_BYTES
+    private fun slotMinBytes(): Long = when (slot()) {
+        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_MIN_BYTES
+        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_MIN_BYTES
+        else -> LlmPrefs.FULL_MIN_BYTES
+    }
 
-    fun slotLabel(): String =
-        if (slot() == LlmPrefs.SLOT_LITE) "Qwen 2.5 0.5B" else "Qwen 2.5 1.5B"
+    fun slotLabel(): String = when (slot()) {
+        LlmPrefs.SLOT_LITE -> "Qwen 2.5 0.5B"
+        LlmPrefs.SLOT_ULTRA -> "SmolLM 135M"
+        else -> "Qwen 2.5 1.5B"
+    }
 
     /** Há cartão SD com diretório app-specific disponível? */
     fun hasSdCard(): Boolean {
@@ -177,19 +189,15 @@ class LocalLlmEngine(private val context: Context) {
             }
             emit(State.Initializing(0.5f))
 
-            // API oficial MediaPipe: createFromOptions (temperatura = default da lib).
+            // API oficial MediaPipe. maxTokens=1024: os modelos ekv1280 têm
+            // contexto de 1280 tokens — acima disso o processo morre em OOM
+            // nativo (sem catch possível). Temperatura = default da lib.
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(2048)
+                .setMaxTokens(1024)
                 .build()
             llmInference = LlmInference.createFromOptions(appContext, options)
 
-            emit(State.Initializing(0.9f))
-            try {
-                llmInference?.generateResponse("Olá")
-            } catch (e: Exception) {
-                Log.w(TAG, "Warm-up falhou (não crítico)", e)
-            }
             emit(State.Ready)
             Result.success(Unit)
         } catch (e: Exception) {
