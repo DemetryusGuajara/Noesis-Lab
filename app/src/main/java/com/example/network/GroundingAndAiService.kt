@@ -210,9 +210,9 @@ class GroundingAndAiService(private val context: Context) {
             else -> listOf(cleanTerm, "${cleanTerm}_(philosophy)", "${cleanTerm}_(psychology)")
         }
 
-        for (candidate in candidates) {
-            val result = runCatching {
-                val encoded = URLEncoder.encode(candidate, "UTF-8")
+        fun attempt(name: String): GroundingSource? {
+            return runCatching {
+                val encoded = URLEncoder.encode(name, "UTF-8")
                 // First check REST summary for metadata & type verification
                 val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
                 val req = Request.Builder()
@@ -248,11 +248,39 @@ class GroundingAndAiService(private val context: Context) {
                         )
                     } else null
                 }
-            }.getOrNull()
-
+            }
+        }
+        for (candidate in candidates) {
+            val result = attempt(candidate)
             if (result != null) return result
         }
+        // Busca aproximada (MediaWiki search): corrige typos e encontra o
+        // verbete mais próximo — "Jangda" vira "Jangada".
+        val suggested = searchClosestTitle(cleanTerm, lang)
+        if (suggested != null && candidates.none { it.equals(suggested, ignoreCase = true) }) {
+            return attempt(suggested)
+        }
         return null
+    }
+
+    private fun searchClosestTitle(term: String, lang: String): String? {
+        return runCatching {
+            val encoded = URLEncoder.encode(term, "UTF-8")
+            val url = "https://$lang.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&srlimit=3&format=json"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "NoesisLab/2.4 (Android)")
+                .get()
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val arr = JSONObject(resp.body?.string() ?: return@use null)
+                    .optJSONObject("query")
+                    ?.optJSONArray("search") ?: return@use null
+                if (arr.length() == 0) return@use null
+                arr.optJSONObject(0)?.optString("title")?.takeIf { it.isNotBlank() }
+            }
+        }.getOrNull()
     }
 
     private fun fetchFullIntroParagraphs(exactTitle: String, lang: String): String? {
@@ -889,11 +917,20 @@ class GroundingAndAiService(private val context: Context) {
     )
 
     private val anchorLensPt = listOf(
-        "Na tradição de Espinosa, cada afeto é uma variação da nossa *potência de agir* (*conatus*): nada aqui é defeito moral, tudo é força pedindo direção.",
-        "Para Merleau-Ponty, perceber é habitar: o mapa que você desenhou mostra o modo como o seu corpo está morando no espaço e no tempo hoje.",
-        "Deleuze nos lembra que criar é traçar *linhas de fuga*: ligar pontos distantes do mapa e descobrir saídas onde o hábito só via repetição.",
-        "Na enação de Varela, a mente se faz ao mapear-se: o simples gesto de externalizar essas esferas já reorganiza seu sistema nervoso.",
-        "Bergson distinguia o tempo do relógio da *duração interior*: nem tudo o que é fértil floresce na velocidade da ansiedade."
+        "Nada aqui é defeito moral: cada força é potência pedindo direção — o trabalho é transformar o que paralisa em compreensão que liberta.",
+        "Perceber é habitar: o mapa que você desenhou mostra o modo como o seu corpo está morando no espaço e no tempo hoje.",
+        "Criar é ligar pontos distantes e descobrir saídas onde o hábito só via repetição: procure no mapa a conexão improvável.",
+        "A mente se faz ao mapear-se: o simples gesto de externalizar essas esferas já reorganiza seu sistema nervoso.",
+        "Há o tempo do relógio e há o tempo vivo da maturação: nem tudo o que é fértil floresce na velocidade da ansiedade."
+    )
+
+    private val creativeDirectivesPt = listOf(
+        "Nesta leitura, o fio condutor é a água: correntes, marés, o que flutua e o que afunda.",
+        "Nesta leitura, conte como quem narra um sonho ao acordar: imagens primeiro, explicações depois.",
+        "Nesta leitura, o corpo vem antes das ideias: cada interpretação começa pela sensação física.",
+        "Nesta leitura, cada esfera é um personagem em diálogo — deixe-os conversar entre si.",
+        "Nesta leitura, o tempo é o protagonista: o passado puxando de um lado, o futuro chamando do outro.",
+        "Nesta leitura, procure o avesso: o que cada força esconde quando ninguém está olhando."
     )
 
     private val affinityFramesPt = listOf(
@@ -945,7 +982,7 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine()
                 appendLine("### 1. The Hidden Geometry of Your Moment")
                 if (affinityPair != null) {
-                    appendLine("By placing **${affinityPair.first.name}** and **${affinityPair.second.name}** in close proximity, your intuition is signaling an active alliance between them. In Maurice Merleau-Ponty's phenomenology of perception, what we keep close in our field of attention forms our *perceptual anchor*—the lens through which your body is currently reading the world.")
+                    appendLine("By placing **${affinityPair.first.name}** and **${affinityPair.second.name}** in close proximity, your intuition is signaling an active alliance between them. What we keep close in our field of attention forms our *perceptual anchor* — the lens through which your body is currently reading the world.")
                 }
                 if (polarityPair != null && polarityPair != affinityPair) {
                     appendLine()
@@ -954,7 +991,7 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine()
                 appendLine("### 2. The Central Insight: Beyond the Dilemma")
                 if (userContext.isNotBlank()) {
-                    appendLine("Reflecting on what you shared—*\"$userContext\"*—notice how Baruch Spinoza's ethics of affects illuminates this state: tension arises not because one force is 'wrong', but because two legitimate movements of your *conatus* (your vital drive to expand and preserve yourself) are negotiating their rhythm.")
+                    appendLine("Reflecting on what you shared—*\"$userContext\"*—notice how tension arises not because one force is 'wrong', but because two legitimate movements of your vital drive to expand and preserve yourself are negotiating their rhythm.")
                 }
                 appendLine()
                 appendLine("### 3. What Each Sphere Reveals Today")
@@ -979,6 +1016,8 @@ class GroundingAndAiService(private val context: Context) {
             appendLine()
             appendLine(anchorLensPt[rng.nextInt(anchorLensPt.size)])
             appendLine()
+            appendLine(creativeDirectivesPt[rng.nextInt(creativeDirectivesPt.size)])
+            appendLine()
 
             // Section 1: Spatial Geometry (Proximity = Affinity, Distance = Polarity)
             appendLine("### 1. A Geometria Invisível do Seu Momento")
@@ -992,7 +1031,7 @@ class GroundingAndAiService(private val context: Context) {
                 }
                 val affinityFormulation = rng.nextInt(3)
                 when (affinityFormulation) {
-                    0 -> appendLine("Ao posicionar **${a.name}** bem próximo de **${b.name}** ($affinityNature), você revelou onde mora o núcleo de gravidade da sua mente hoje. Para a fenomenologia de Merleau-Ponty, aquilo que aproximamos no espaço perceptivo funciona como um *acorde de fundo*: **${a.name}** está emprestando sua cor e seu tom para a forma como você experimenta **${b.name}**. Eles não estão competindo; estão alimentando um ao outro.")
+                    0 -> appendLine("Ao posicionar **${a.name}** bem próximo de **${b.name}** ($affinityNature), você revelou onde mora o núcleo de gravidade da sua mente hoje. Aquilo que aproximamos no nosso espaço perceptivo funciona como um *acorde de fundo*: **${a.name}** está emprestando sua cor e seu tom para a forma como você experimenta **${b.name}**. Eles não estão competindo; estão alimentando um ao outro.")
                     1 -> appendLine("O par **${a.name}** ↔ **${b.name}** ($affinityNature) é o coração do seu mapa atual. Onde a atenção aproxima, o corpo declara aliança: essas duas forças estão operando em circuito fechado, e o estado de uma regula diretamente o estado da outra.")
                     else -> appendLine("Repare no abraço entre **${a.name}** e **${b.name}** ($affinityNature). Em termos deleuzianos, aí corre sua principal *linha de intensidade*: seguir esse fio — em vez de rompê-lo — é o caminho mais curto para a clareza hoje.")
                 }
@@ -1025,7 +1064,7 @@ class GroundingAndAiService(private val context: Context) {
                 )
                 appendLine(deepDilemmaAnalysis)
             } else {
-                appendLine("Na tradição de Baruch de Espinosa, cada afeto que sentimos é uma variação da nossa *potência de agir* (*conatus*). Quando olhamos para as forças de **$primaryConcept** e **$secondaryConcept** juntas, o segredo não é tentar apagar a esfera mais densa para ficar apenas com a mais leve. Como lembram Gilles Deleuze e Francisco Varela, a vitalidade da mente nasce justamente de criar uma *linha de passagem* entre as duas: usar a lucidez de uma para dar contorno e direção à energia da outra.")
+                appendLine("Cada afeto que sentimos é uma variação da nossa *potência de agir*: quando olhamos para as forças de **$primaryConcept** e **$secondaryConcept** juntas, o segredo não é tentar apagar a esfera mais densa para ficar apenas com a mais leve. A vitalidade da mente nasce justamente de criar uma *linha de passagem* entre as duas: usar a lucidez de uma para dar contorno e direção à energia da outra.")
             }
 
             appendLine()
@@ -1063,6 +1102,7 @@ class GroundingAndAiService(private val context: Context) {
         lang: String
     ): String {
         val lower = sphere.name.lowercase()
+        val v = (sphere.name.hashCode() and Int.MAX_VALUE) % 2
         val isHeavy = sphere.weightHeaviness >= 0.55f
         val isHighImportance = sphere.importanceMass >= 1.55f
         val isMidHeavy = !isHeavy && sphere.weightHeaviness >= 0.38f
@@ -1087,15 +1127,18 @@ class GroundingAndAiService(private val context: Context) {
 
         val coreMeaning = when {
             lower.contains("desejo") || lower.contains("vontade") || lower.contains("paixão") ->
-                "Para Espinosa, o Desejo é a própria essência humana em movimento—não a carência do que falta, mas a força criadora que imagina novos futuros possíveis."
+                if (v == 0) "O Desejo é a própria essência humana em movimento — não a carência do que falta, mas a força criadora que imagina novos futuros possíveis."
+                else "O Desejo aponta para onde a vida quer se expandir: siga o vetor dele e observe o que cresce junto."
             lower.contains("medo") || lower.contains("receio") || lower.contains("cautela") ->
-                "Na neurociência afetiva, o Medo não é um inimigo nem sinal de fraqueza: é uma sentinela antiga que só desperta diante daquilo que é precioso e tem valor real para a sua vida."
+                if (v == 0) "O Medo não é um inimigo nem sinal de fraqueza: é uma sentinela antiga que só desperta diante daquilo que é precioso e tem valor real para a sua vida."
+                else "O Medo guarda o que importa: onde ele aparece, há algo valioso pedindo proteção — não fuga."
             lower.contains("tempo") || lower.contains("futuro") || lower.contains("passado") || lower.contains("espera") ->
-                "Henri Bergson diferenciava o tempo do relógio (mecânico e apressado) da *duração interior* (o tempo vivo da maturação). Nem tudo o que é fértil floresce na velocidade da ansiedade."
+                if (v == 0) "Há o tempo do relógio (mecânico e apressado) e há o *tempo vivo da maturação*. Nem tudo o que é fértil floresce na velocidade da ansiedade."
+                else "O Tempo no mapa pede outro ritmo: algumas esferas amadurecem devagar, e apressá-las estraga a colheita."
             lower.contains("identidade") || lower.contains("eu") ->
-                "A Identidade não é uma estátua pronta, mas uma narrativa em constante autopoiese (como ensinava Francisco Varela). Mudar de posição ou acolher novas dúvidas não ameaça quem você é; amplia sua inteireza."
+                "A Identidade não é uma estátua pronta, mas uma narrativa viva em constante refazimento. Mudar de posição ou acolher novas dúvidas não ameaça quem você é; amplia sua inteireza."
             lower.contains("criatividade") || lower.contains("arte") || lower.contains("invenção") ->
-                "Em Deleuze, criar é traçar uma *linha de fuga*—encontrar uma saída inédita onde o hábito só enxergava repetição. Ela transforma a tensão das outras esferas em matéria-prima expressiva."
+                "Criar é traçar uma *linha de fuga* — encontrar uma saída inédita onde o hábito só enxergava repetição. Ela transforma a tensão das outras esferas em matéria-prima expressiva."
             lower.contains("silêncio") || lower.contains("calma") || lower.contains("vazio") || lower.contains("paz") ->
                 "O Silêncio é o intervalo acústico e mental indispensável para que os pensamentos decantem. Sem espaço vazio entre as notas, não existe música—apenas ruído."
             lower.contains("cansaço") || lower.contains("sono") || lower.contains("exaustão") || lower.contains("repouso") ->
@@ -1103,15 +1146,15 @@ class GroundingAndAiService(private val context: Context) {
             lower.contains("justiça") || lower.contains("equilíbrio") || lower.contains("ética") ->
                 "Representa a justa medida e a ecologia interior: o compromisso de não ser injusto consigo mesmo enquanto tenta dar conta das demandas do mundo."
             lower.contains("raiva") || lower.contains("irritação") || lower.contains("irritacao") || lower.contains("fúria") || lower.contains("furia") ->
-                "A Raiva é energia de fronteira: para Espinosa, ela sinaliza onde sua potência foi contrariada. Em vez de reprimi-la ou obedecê-la cegamente, use-a como bússola — ela aponta exatamente o limite que precisa ser redesenhado."
+                "A Raiva é energia de fronteira: ela sinaliza onde sua potência foi contrariada. Em vez de reprimi-la ou obedecê-la cegamente, use-a como bússola — ela aponta exatamente o limite que precisa ser redesenhado."
             lower.contains("tristeza") || lower.contains("melancolia") || lower.contains("nostalgia") || lower.contains("saudade") ->
                 "A Tristeza é a maré baixa da alma: expõe o que a euforia esconde. Honrá-la não é afundar-se nela, é permitir que ela lave e reorganize o terreno interno antes da próxima maré cheia."
             lower.contains("alegria") || lower.contains("euforia") || lower.contains("entusiasmo") || lower.contains("empolgação") || lower.contains("empolgacao") ->
-                "A Alegria, para Espinosa, é a passagem a uma perfeição maior — o sinal mais confiável de que sua potência está aumentando. Ancore-se nela: registre onde ela mora no corpo para poder revisitá-la."
+                "A Alegria é a passagem a uma perfeição maior — o sinal mais confiável de que sua potência está aumentando. Ancore-se nela: registre onde ela mora no corpo para poder revisitá-la."
             lower.contains("amor") || lower.contains("carinho") || lower.contains("afeto") || lower.contains("ternura") ->
                 "O Amor é a atenção tornada morada: aquilo que amamos, sustentamos. Na sua constelação, ele funciona como cola gravitacional — aproxima o que estava disperso e dá peso ao que importa."
             lower.contains("vergonha") || lower.contains("culpa") ->
-                "Vergonha e Culpa são afetos do olhar — supõem um tribunal interno. A virada espinosana: trocar o julgamento pela compreensão das causas. O que tem causa, tem manejo; o que tem manejo, deixa de ser sentença."
+                "Vergonha e Culpa são afetos do olhar — supõem um tribunal interno. A virada aqui: trocar o julgamento pela compreensão das causas. O que tem causa, tem manejo; o que tem manejo, deixa de ser sentença."
             lower.contains("esperança") || lower.contains("esperanca") || lower.contains("otimismo") ->
                 "A Esperança é a imaginação trabalhando a seu favor: o cérebro preditivo ensaiando futuros habitáveis. Alimente-a com um próximo passo concreto, pequeno o bastante para ser cumprido hoje."
             lower.contains("ansiedade") || lower.contains("ansios") || lower.contains("angústia") || lower.contains("angustia") || lower.contains("aflição") || lower.contains("aflicao") ->
@@ -1119,7 +1162,7 @@ class GroundingAndAiService(private val context: Context) {
             lower.contains("coragem") || lower.contains("ousadia") ->
                 "A Coragem não é ausência de medo, é o medo atravessado com lucidez. Ela aparece no mapa como vetor de expansão: siga a direção para onde ela aponta, mesmo em passos pequenos."
             lower.contains("liberdade") || lower.contains("autonomia") ->
-                "A Liberdade, em Espinosa, não é fazer qualquer coisa, é agir a partir da compreensão das próprias causas. Cada esfera mapeada com honestidade aumenta seu grau de liberdade real."
+                "A Liberdade não é fazer qualquer coisa, é agir a partir da compreensão das próprias causas. Cada esfera mapeada com honestidade aumenta seu grau de liberdade real."
             lower.contains("gratidão") || lower.contains("gratidao") ->
                 "A Gratidão é atenção treinada para o que sustenta: ela converte o fundo em figura. Praticá-la reconfigura o campo perceptivo — o mapa literalmente muda de cor quando ela entra."
             lower.contains("solidão") || lower.contains("solidao") || lower.contains("sozinho") ->
@@ -1137,9 +1180,20 @@ class GroundingAndAiService(private val context: Context) {
                     ?.trim()
 
                 if (!cleanSentences.isNullOrBlank()) {
-                    "$cleanSentences Na sua constelação subjetiva, este conceito funciona como uma metáfora viva que organiza suas percepções de hoje."
+                    val closer = if (v == 0) " Na sua constelação subjetiva, este conceito funciona como uma metáfora viva que organiza suas percepções de hoje."
+                    else " Traga essa definição para perto do corpo: onde ela vibra mais forte é onde mora o trabalho de hoje."
+                    "$cleanSentences$closer"
                 } else {
-                    "Atua como um território singular na sua paisagem subjetiva, abrindo novas conexões entre o que você sente e o que você pensa."
+                    // Espelho em branco: sem verbete e sem balde pronto, o sentido
+                    // nasce da posição, do peso e das vizinhanças — não do dicionário.
+                    // Vale para QUALQUER termo: "Jangada", "Capivara", "Amnésia".
+                    val dist = hypot(sphere.posX - 0.5f, sphere.posY - 0.5f)
+                    val place = if (dist < 0.22f) "no centro do seu mapa — o assunto ao redor do qual todo o resto orbita hoje"
+                    else "nas bordas do seu mapa — presente, mas mantida a uma distância que também diz algo"
+                    val density = if (sphere.weightHeaviness >= 0.55f) "com peso denso, pedindo respeito ao ritmo"
+                    else "com leveza, pedindo espaço para respirar"
+                    if (v == 0) "**${sphere.name}** não tem verbete pronto — e isso é potência, não falta. Posicionada $place, $density, ela funciona como um *espelho em branco*: o sentido dela será decidido pelo que você fizer com ela, não pelo dicionário."
+                    else "Nenhuma definição externa dá conta de **${sphere.name}** hoje — e tudo bem: símbolos vivos escapam de verbetes. Leia-a pela geometria: está $place, $density. Pergunte-se o que essa posição protege ou anuncia."
                 }
             }
         }
@@ -1173,7 +1227,7 @@ class GroundingAndAiService(private val context: Context) {
 
         return when {
             lower.contains("dividido") || lower.contains("dúvida") || lower.contains("escolh") || lower.contains("entre") ->
-                "Quando nos sentimos divididos, costumamos achar que uma parte de nós está errada e precisa vencer a outra. Mas na filosofia de Espinosa e na psicologia profunda, a ambivalência raramente é fraqueza: ela acontece quando **duas verdades legítimas** estão pedindo passagem ao mesmo tempo. **$dominant** aponta para aquilo que quer crescer, enquanto **$secondary** protege o que você não quer perder. $somaticContext Em vez de exigir uma resposta definitiva sob pressão hoje, permita um pequeno experimento prático que honre os dois lados sem que um precise aniquilar o outro."
+                "Quando nos sentimos divididos, costumamos achar que uma parte de nós está errada e precisa vencer a outra. Mas a ambivalência raramente é fraqueza: ela acontece quando **duas verdades legítimas** estão pedindo passagem ao mesmo tempo. **$dominant** aponta para aquilo que quer crescer, enquanto **$secondary** protege o que você não quer perder. $somaticContext Em vez de exigir uma resposta definitiva sob pressão hoje, permita um pequeno experimento prático que honre os dois lados sem que um precise aniquilar o outro."
 
             lower.contains("projeto") || lower.contains("trabalho") || lower.contains("criar") || lower.contains("começar") || lower.contains("novo") ->
                 "Todo gesto de criação ou mudança real esbarra na fronteira entre a expansão (**$dominant**) e a conservação (**$secondary**). Na neurociência do processamento preditivo, o cérebro humano prefere o conhecido—mesmo quando insatisfatório—porque o conhecido exige menos gasto energético. Por isso, o frio na barriga ou a hesitação antes de avançar não são sinais de que você não é capaz; são apenas o seu sistema nervoso recalibrando o mapa diante do inédito. $somaticContext Reduza a escala do próximo passo até que ele pareça um teste curioso, e não um salto no escuro."
@@ -1191,7 +1245,7 @@ class GroundingAndAiService(private val context: Context) {
                 "Culpa e vergonha supõem um tribunal interno em sessão permanente. Mas todo tribunal pode ser revisto: troque o veredito pela autópsia das causas — o que faltava, o que sobrava, o que era impossível saber então. $somaticContext Entre **$dominant** e **$secondary** há material para reparação concreta, que dissolve culpa melhor que qualquer autoflagelo: um gesto, um pedido, um ajuste de rota."
 
             lower.contains("apatia") || lower.contains("sentido") || lower.contains("vazio") || lower.contains("desânimo") || lower.contains("desanimo") || lower.contains("propósito") || lower.contains("proposito") ->
-                "A apatia raramente é falta de vontade — costuma ser excesso de exigência internalizada paralisando o conatus. Quando tudo pesa igual, nada se move. $somaticContext Reduza a unidade de ação até o ridículo (cinco minutos, um telefonema, uma caminhada no quarteirão): **$dominant** reacende por atrito com o real, não por deliberação abstrata. **$secondary** pode guardar o sentido maior enquanto isso."
+                "A apatia raramente é falta de vontade — costuma ser excesso de exigência internalizada paralisando a potência de agir. Quando tudo pesa igual, nada se move. $somaticContext Reduza a unidade de ação até o ridículo (cinco minutos, um telefonema, uma caminhada no quarteirão): **$dominant** reacende por atrito com o real, não por deliberação abstrata. **$secondary** pode guardar o sentido maior enquanto isso."
 
             lower.contains("eufóri") || lower.contains("eufori") || lower.contains("empolgad") || lower.contains("decisão") || lower.contains("decisao") || lower.contains("oportunidade") ->
                 "A expansão tem sua própria vertigem: **$dominant** puxa para o salto enquanto **$secondary** pede lastro. Nem freio total, nem voo cego — a sabedoria aqui é projetar o paraquedas antes de pular: defina o menor experimento reversível que testa a oportunidade. $somaticContext Euforia com método vira conquista; sem método, vira ressaca."

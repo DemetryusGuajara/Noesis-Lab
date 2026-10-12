@@ -16,3 +16,11 @@
 local.properties
 .env
 debug.keystore
+# Arquivo interno de reporte de erros (nao commitar)
+/erro.md
+erro.md
+/Erro.md
+Erro.md
+# Arquivo interno de comunicação (não comitar) 
+/comunicação_interna.md
+comunicação_interna.md
