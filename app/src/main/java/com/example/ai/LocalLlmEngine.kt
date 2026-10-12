@@ -70,11 +70,12 @@ class LocalLlmEngine(private val context: Context) {
             
             emit(State.Initializing(0.5f))
             
-            // Carrega no MediaPipe via createFromOptions (API oficial)
+            // Carrega no MediaPipe via createFromOptions (API oficial).
+            // Nota: setTemperature nao existe no LlmInferenceOptions desta versao
+            // (temperatura e configurada por sessao); usa o default da lib.
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(2048)
-                .setTemperature(0.7f)
                 .build()
             
             llmInference = LlmInference.createFromOptions(context, options)
