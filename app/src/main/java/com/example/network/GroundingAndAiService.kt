@@ -554,7 +554,8 @@ class GroundingAndAiService(private val context: Context) {
         cleanKnowledgeSummary: String,
         arousal: Float,
         valence: Float,
-        focus: Float
+        focus: Float,
+        creativeDirective: String = ""
     ): String = """
         Você é o Noesis Lab, guia perceptivo e filósofo da mente.
         $languageInstruction
@@ -568,6 +569,8 @@ class GroundingAndAiService(private val context: Context) {
 
         SLIDERS (module tom e conteúdo): Ritmo Interno=${(arousal * 100).toInt()}%: alto → frases curtas e práticas de descarga; baixo → cadência lenta e sustentação. Abertura Afetiva=${(valence * 100).toInt()}%: alta → ouse e convide; baixa → acolha em passos pequenos. Foco=${(focus * 100).toInt()}%: alto → aprofunde um fio; baixo → panorama leve. Esferas pesadas pedem respeito ao ritmo; leves pedem leveza.
         CADA LEITURA DEVE SER INÉDITA: varie título, metáfora central e ritmo das frases; nunca repita fórmulas de leituras anteriores.
+        DIRETRIZ CRIATIVA DESTA LEITURA (obrigatória — define a voz deste texto; nunca a mencione explicitamente):
+        $creativeDirective
 
         DADOS — Esferas: $particlesSummary
         Topologia: $topologyDescription
@@ -633,6 +636,14 @@ class GroundingAndAiService(private val context: Context) {
             "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
         }
 
+        val seed = System.currentTimeMillis()
+        val promptRng = Random(seed)
+        val creativeDirective = if (languageCode.lowercase() == "pt") {
+            creativeDirectivesPt[promptRng.nextInt(creativeDirectivesPt.size)]
+        } else {
+            creativeDirectivesEn[promptRng.nextInt(creativeDirectivesEn.size)]
+        }
+
         val masterSystemPrompt = buildMasterPhenomenologicalSystemPrompt(
             languageInstruction = languageInstruction,
             particlesSummary = particlesSummary,
@@ -640,7 +651,8 @@ class GroundingAndAiService(private val context: Context) {
             cleanKnowledgeSummary = cleanKnowledgeSummary,
             arousal = arousal,
             valence = valence,
-            focus = focus
+            focus = focus,
+            creativeDirective = creativeDirective
         )
 
         val userMessage = """
@@ -798,7 +810,6 @@ class GroundingAndAiService(private val context: Context) {
         )
         delay(550)
 
-        val seed = System.currentTimeMillis()
         val synthesized = synthesizeDeepMultiSphereNarrative(
             userPrompt = userPrompt,
             spatialSpheres = spatialSpheres,
@@ -931,6 +942,13 @@ class GroundingAndAiService(private val context: Context) {
         "Nesta leitura, cada esfera é um personagem em diálogo — deixe-os conversar entre si.",
         "Nesta leitura, o tempo é o protagonista: o passado puxando de um lado, o futuro chamando do outro.",
         "Nesta leitura, procure o avesso: o que cada força esconde quando ninguém está olhando."
+    )
+
+    private val creativeDirectivesEn = listOf(
+        "In this reading, let water lead: currents, tides, what floats and what sinks.",
+        "In this reading, narrate as if recounting a dream: images first, explanations later.",
+        "In this reading, the body comes before ideas: every insight starts from physical sensation.",
+        "In this reading, each sphere is a character in dialogue — let them talk to each other."
     )
 
     private val affinityFramesPt = listOf(
