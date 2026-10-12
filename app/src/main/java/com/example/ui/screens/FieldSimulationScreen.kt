@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,24 +36,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,6 +78,9 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ConceptParticleEntity
+import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.computeSynestheticSphereColor
+import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
 import kotlin.math.PI
 import kotlin.math.abs
@@ -92,19 +94,23 @@ fun FieldSimulationScreen(
     uiState: NoesisUiState,
     onSelectParticle: (ConceptParticleEntity) -> Unit,
     onCommitParticlePosition: (ConceptParticleEntity, Float, Float, Float) -> Unit,
-    onUpdateParticleParams: (ConceptParticleEntity, Float, Float, Float) -> Unit,
+    onUpdateParticleImportanceAndHeaviness: (ConceptParticleEntity, Float, Float) -> Unit,
     onInjectConcept: (String, String) -> Unit,
     onRemoveParticle: (Long) -> Unit,
     onResetParticles: () -> Unit,
-    onCollideAndSynthesize: () -> Unit,
-    onToggleSound: (Boolean) -> Unit,
-    onToggleBinaural: (Boolean) -> Unit
+    onCollideAndSynthesize: () -> Unit
 ) {
     val strings = uiState.strings
     var customConceptInput by remember { mutableStateOf("") }
     var showMetricsExplanation by remember { mutableStateOf(false) }
 
-    // Zero-latency local coordinate map for buttery-smooth 60fps dragging ("Puxou, foi")
+    val isDark = when (uiState.preferences.themeMode) {
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+
+    // Zero-latency local coordinate map for buttery-smooth 60fps dragging
     val liveOffsets = remember { mutableStateMapOf<Long, Offset>() }
     var activeDraggingId by remember { mutableStateOf<Long?>(null) }
 
@@ -134,9 +140,9 @@ fun FieldSimulationScreen(
     val textMeasurer = rememberTextMeasurer()
 
     val musicalMoodText = when {
-        uiState.meanValence > 0.68f -> strings.soundMoodCalm
-        uiState.meanValence > 0.50f -> strings.soundMoodDreamy
-        uiState.meanValence > 0.35f -> strings.soundMoodVibrant
+        uiState.meanHeaviness < 0.30f -> strings.soundMoodCalm
+        uiState.meanHeaviness < 0.50f -> strings.soundMoodDreamy
+        uiState.meanHeaviness < 0.70f -> strings.soundMoodVibrant
         else -> strings.soundMoodTense
     }
 
@@ -147,7 +153,7 @@ fun FieldSimulationScreen(
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("field_simulation_screen")
     ) {
-        // Intro & Sound Controls Card
+        // Intro Header Card (No Binaural / No Mute Button — Media Notification handles playback)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -169,7 +175,6 @@ fun FieldSimulationScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Quick Intuitive Tip Banner
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
@@ -181,55 +186,6 @@ fun FieldSimulationScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(10.dp)
                     )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Sound & Optional Binaural Controls Row
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = uiState.preferences.soundEnabled,
-                        onClick = { onToggleSound(!uiState.preferences.soundEnabled) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (uiState.preferences.soundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = if (uiState.preferences.soundEnabled) strings.soundToggleOn else strings.soundToggleOff,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        modifier = Modifier.testTag("sound_toggle_chip")
-                    )
-
-                    if (uiState.preferences.soundEnabled) {
-                        FilterChip(
-                            selected = uiState.preferences.binauralEnabled,
-                            onClick = { onToggleBinaural(!uiState.preferences.binauralEnabled) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.GraphicEq,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = strings.binauralToggleLabel,
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            },
-                            modifier = Modifier.testTag("binaural_toggle_chip")
-                        )
-                    }
                 }
             }
         }
@@ -314,7 +270,7 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Interactive Synesthetic Canvas (Colors + Chords + Ultra-Fluid 60fps Drag)
+        // Interactive Synesthetic Canvas with Split-Screen Scroll Frame Rails on Left & Right Edges (Item 3)
         val canvasBg = MaterialTheme.colorScheme.surface
         val gridLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         val labelColor = MaterialTheme.colorScheme.onSurface
@@ -322,220 +278,268 @@ fun FieldSimulationScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(350.dp)
+                .height(355.dp)
                 .testTag("particle_field_canvas"),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = canvasBg),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline)
         ) {
             var lastDragSpeed by remember { mutableStateOf(10f) }
 
-            Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            val w = size.width.toFloat().coerceAtLeast(1f)
-                            val h = size.height.toFloat().coerceAtLeast(1f)
-                            val tapped = currentParticles.minByOrNull { p ->
-                                val pos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
-                                hypot(pos.x * w - offset.x, pos.y * h - offset.y)
-                            }
-                            if (tapped != null) {
-                                val pos = liveOffsets[tapped.id] ?: Offset(tapped.posX, tapped.posY)
-                                if (hypot(pos.x * w - offset.x, pos.y * h - offset.y) < 130f) {
-                                    onSelectParticle(tapped)
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Inner interactive area where spheres are dragged
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                val tapped = currentParticles.minByOrNull { p ->
+                                    val pos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
+                                    hypot(pos.x * w - offset.x, pos.y * h - offset.y)
+                                }
+                                if (tapped != null) {
+                                    val pos = liveOffsets[tapped.id] ?: Offset(tapped.posX, tapped.posY)
+                                    if (hypot(pos.x * w - offset.x, pos.y * h - offset.y) < 135f) {
+                                        onSelectParticle(tapped)
+                                    }
                                 }
                             }
                         }
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { startOffset ->
-                                val w = size.width.toFloat().coerceAtLeast(1f)
-                                val h = size.height.toFloat().coerceAtLeast(1f)
-                                val nearest = currentParticles.minByOrNull { p ->
-                                    val pos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
-                                    hypot(pos.x * w - startOffset.x, pos.y * h - startOffset.y)
-                                }
-                                if (nearest != null) {
-                                    val pos = liveOffsets[nearest.id] ?: Offset(nearest.posX, nearest.posY)
-                                    if (hypot(pos.x * w - startOffset.x, pos.y * h - startOffset.y) < 150f) {
-                                        activeDraggingId = nearest.id
-                                        onSelectParticle(nearest)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { startOffset ->
+                                    val w = size.width.toFloat().coerceAtLeast(1f)
+                                    val h = size.height.toFloat().coerceAtLeast(1f)
+                                    val nearest = currentParticles.minByOrNull { p ->
+                                        val pos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
+                                        hypot(pos.x * w - startOffset.x, pos.y * h - startOffset.y)
                                     }
-                                }
-                            },
-                            onDragEnd = {
-                                val id = activeDraggingId
-                                activeDraggingId = null
-                                if (id != null) {
-                                    val target = currentParticles.find { it.id == id }
-                                    val finalPos = liveOffsets[id]
-                                    if (target != null && finalPos != null) {
-                                        onCommitParticlePosition(target, finalPos.x, finalPos.y, lastDragSpeed)
+                                    if (nearest != null) {
+                                        val pos = liveOffsets[nearest.id] ?: Offset(nearest.posX, nearest.posY)
+                                        if (hypot(pos.x * w - startOffset.x, pos.y * h - startOffset.y) < 155f) {
+                                            activeDraggingId = nearest.id
+                                            onSelectParticle(nearest)
+                                        }
                                     }
+                                },
+                                onDragEnd = {
+                                    val id = activeDraggingId
+                                    activeDraggingId = null
+                                    if (id != null) {
+                                        val target = currentParticles.find { it.id == id }
+                                        val finalPos = liveOffsets[id]
+                                        if (target != null && finalPos != null) {
+                                            onCommitParticlePosition(target, finalPos.x, finalPos.y, lastDragSpeed)
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    activeDraggingId = null
+                                },
+                                onDrag = { change, dragAmount ->
+                                    val id = activeDraggingId ?: return@detectDragGestures
+                                    change.consume()
+                                    val w = size.width.toFloat().coerceAtLeast(1f)
+                                    val h = size.height.toFloat().coerceAtLeast(1f)
+                                    val current = liveOffsets[id] ?: Offset(0.5f, 0.5f)
+                                    val nextX = (current.x + dragAmount.x / w).coerceIn(0.08f, 0.92f)
+                                    val nextY = (current.y + dragAmount.y / h).coerceIn(0.10f, 0.90f)
+                                    liveOffsets[id] = Offset(nextX, nextY)
+                                    lastDragSpeed = hypot(dragAmount.x, dragAmount.y)
                                 }
-                            },
-                            onDragCancel = {
-                                activeDraggingId = null
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                val id = activeDraggingId ?: return@detectDragGestures
-                                val w = size.width.toFloat().coerceAtLeast(1f)
-                                val h = size.height.toFloat().coerceAtLeast(1f)
-                                val current = liveOffsets[id] ?: Offset(0.5f, 0.5f)
-                                val nextX = (current.x + dragAmount.x / w).coerceIn(0.08f, 0.92f)
-                                val nextY = (current.y + dragAmount.y / h).coerceIn(0.10f, 0.90f)
-                                liveOffsets[id] = Offset(nextX, nextY)
-                                lastDragSpeed = hypot(dragAmount.x, dragAmount.y)
-                            }
-                        )
-                    }
-            ) {
-                val w = size.width
-                val h = size.height
-                val center = Offset(w / 2f, h / 2f)
+                            )
+                        }
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val center = Offset(w / 2f, h / 2f)
 
-                // 1. Synesthetic Background Color Aura modulated by each sphere's position, size, and color
-                currentParticles.forEach { p ->
-                    val normPos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
-                    val px = normPos.x * w
-                    val py = normPos.y * h
-                    val auraColor = Color(p.colorHex)
-                    val auraRadius = (110f + p.mass * 55f).dp.toPx()
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                auraColor.copy(alpha = 0.24f),
-                                auraColor.copy(alpha = 0.08f),
-                                Color.Transparent
+                    // 1. Synesthetic Background Color Aura (Dynamic Hue from Importance + Saturation from Heaviness)
+                    currentParticles.forEach { p ->
+                        val normPos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
+                        val px = normPos.x * w
+                        val py = normPos.y * h
+                        val auraColor = computeSynestheticSphereColor(
+                            importanceMass = p.mass,
+                            heavinessWeight = p.charge,
+                            isDarkTheme = isDark
+                        )
+                        val auraRadius = (105f + p.mass * 58f).dp.toPx()
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    auraColor.copy(alpha = 0.28f),
+                                    auraColor.copy(alpha = 0.09f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(px, py),
+                                radius = auraRadius
                             ),
-                            center = Offset(px, py),
-                            radius = auraRadius
-                        ),
-                        radius = auraRadius,
-                        center = Offset(px, py)
-                    )
-                }
-
-                // 2. Subtle Horizon Rings
-                for (ring in 1..3) {
-                    val radius = (minOf(w, h) * 0.15f * ring) + sin(wavePhase + ring) * 3f
-                    drawCircle(
-                        color = gridLineColor,
-                        radius = radius,
-                        center = center,
-                        style = Stroke(
-                            width = 1.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                            radius = auraRadius,
+                            center = Offset(px, py)
                         )
-                    )
-                }
+                    }
 
-                // 3. Harmonic Connection Bridges between nearby concepts
-                val particles = currentParticles
-                for (i in particles.indices) {
-                    for (j in i + 1 until particles.size) {
-                        val p1 = particles[i]
-                        val p2 = particles[j]
-                        val n1 = liveOffsets[p1.id] ?: Offset(p1.posX, p1.posY)
-                        val n2 = liveOffsets[p2.id] ?: Offset(p2.posX, p2.posY)
-                        val o1 = Offset(n1.x * w, n1.y * h)
-                        val o2 = Offset(n2.x * w, n2.y * h)
-                        val dist = hypot(o2.x - o1.x, o2.y - o1.y)
-                        val maxInteractDist = minOf(w, h) * 0.68f
+                    // 2. Subtle Horizon Rings
+                    for (ring in 1..3) {
+                        val radius = (minOf(w, h) * 0.15f * ring) + sin(wavePhase + ring) * 3f
+                        drawCircle(
+                            color = gridLineColor,
+                            radius = radius,
+                            center = center,
+                            style = Stroke(
+                                width = 1.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                            )
+                        )
+                    }
 
-                        if (dist < maxInteractDist) {
-                            val coupling = (1f - (dist / maxInteractDist)).coerceIn(0.15f, 1f)
-                            val c1 = Color(p1.colorHex)
-                            val c2 = Color(p2.colorHex)
+                    // 3. Color & Sound Blending Bridges between nearby concepts
+                    val particles = currentParticles
+                    for (i in particles.indices) {
+                        for (j in i + 1 until particles.size) {
+                            val p1 = particles[i]
+                            val p2 = particles[j]
+                            val n1 = liveOffsets[p1.id] ?: Offset(p1.posX, p1.posY)
+                            val n2 = liveOffsets[p2.id] ?: Offset(p2.posX, p2.posY)
+                            val o1 = Offset(n1.x * w, n1.y * h)
+                            val o2 = Offset(n2.x * w, n2.y * h)
+                            val dist = hypot(o2.x - o1.x, o2.y - o1.y)
+                            val maxInteractDist = minOf(w, h) * 0.72f
 
-                            drawLine(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        c1.copy(alpha = coupling * 0.7f),
-                                        c2.copy(alpha = coupling * 0.7f)
+                            if (dist < maxInteractDist) {
+                                val coupling = (1f - (dist / maxInteractDist)).coerceIn(0.15f, 1f)
+                                val c1 = computeSynestheticSphereColor(p1.mass, p1.charge, isDark)
+                                val c2 = computeSynestheticSphereColor(p2.mass, p2.charge, isDark)
+                                val midColor = Color(
+                                    red = (c1.red + c2.red) * 0.5f,
+                                    green = (c1.green + c2.green) * 0.5f,
+                                    blue = (c1.blue + c2.blue) * 0.5f,
+                                    alpha = 1f
+                                )
+
+                                drawLine(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            c1.copy(alpha = coupling * 0.78f),
+                                            midColor.copy(alpha = coupling * 0.85f),
+                                            c2.copy(alpha = coupling * 0.78f)
+                                        ),
+                                        start = o1,
+                                        end = o2
                                     ),
                                     start = o1,
-                                    end = o2
-                                ),
-                                start = o1,
-                                end = o2,
-                                strokeWidth = (1.5f + coupling * 3f).dp.toPx()
-                            )
-
-                            if (coupling > 0.50f) {
-                                val mid = Offset((o1.x + o2.x) / 2f, (o1.y + o2.y) / 2f)
-                                drawCircle(
-                                    color = c1.copy(alpha = 0.85f),
-                                    radius = (4f + sin(wavePhase * 2f) * 2f).dp.toPx(),
-                                    center = mid
+                                    end = o2,
+                                    strokeWidth = (1.8f + coupling * 3.5f).dp.toPx()
                                 )
+
+                                if (coupling > 0.45f) {
+                                    val mid = Offset((o1.x + o2.x) / 2f, (o1.y + o2.y) / 2f)
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                midColor.copy(alpha = coupling * 0.50f),
+                                                Color.Transparent
+                                            ),
+                                            center = mid,
+                                            radius = (26f * coupling).dp.toPx()
+                                        ),
+                                        radius = (26f * coupling).dp.toPx(),
+                                        center = mid
+                                    )
+                                    drawCircle(
+                                        color = midColor.copy(alpha = 0.90f),
+                                        radius = (4.5f + sin(wavePhase * 2f) * 2f).dp.toPx(),
+                                        center = mid
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                // 4. Draw Each Sphere with Instantaneous Drag Response
-                particles.forEachIndexed { idx, p ->
-                    val normPos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
-                    val pos = Offset(normPos.x * w, normPos.y * h)
-                    val baseColor = Color(p.colorHex)
-                    val isSelected = p.id == selectedParticle?.id || p.id == activeDraggingId
-                    val pulse = sin(wavePhase * (1f + abs(p.spin) * 0.35f) + idx)
-                    val coreRadius = (16f + p.mass * 6f).dp.toPx()
-                    val haloRadius = coreRadius * (1.45f + pulse * 0.12f)
+                    // 4. Draw Each Sphere with Live Color Hue & Saturation
+                    particles.forEachIndexed { idx, p ->
+                        val normPos = liveOffsets[p.id] ?: Offset(p.posX, p.posY)
+                        val pos = Offset(normPos.x * w, normPos.y * h)
+                        val sphereColor = computeSynestheticSphereColor(
+                            importanceMass = p.mass,
+                            heavinessWeight = p.charge,
+                            isDarkTheme = isDark
+                        )
+                        val isSelected = p.id == selectedParticle?.id || p.id == activeDraggingId
+                        val pulse = sin(wavePhase * (1f + abs(p.spin) * 0.35f) + idx)
+                        val coreRadius = (16f + p.mass * 6f).dp.toPx()
+                        val haloRadius = coreRadius * (1.45f + pulse * 0.12f)
 
-                    if (isSelected) {
+                        if (isSelected) {
+                            drawCircle(
+                                color = sphereColor,
+                                radius = haloRadius,
+                                center = pos,
+                                style = Stroke(width = 2.6.dp.toPx())
+                            )
+                        }
+
+                        val orbitAngle = wavePhase * (if (p.spin >= 0f) 1.4f else -1.4f) + idx
+                        val satOffset = Offset(
+                            x = pos.x + cos(orbitAngle) * (coreRadius * 1.3f),
+                            y = pos.y + sin(orbitAngle) * (coreRadius * 1.3f)
+                        )
                         drawCircle(
-                            color = baseColor,
-                            radius = haloRadius,
-                            center = pos,
-                            style = Stroke(width = 2.5.dp.toPx())
+                            color = sphereColor.copy(alpha = 0.9f),
+                            radius = 3.5.dp.toPx(),
+                            center = satOffset
+                        )
+
+                        drawCircle(
+                            color = sphereColor,
+                            radius = coreRadius,
+                            center = pos
+                        )
+
+                        drawCircle(
+                            color = canvasBg,
+                            radius = coreRadius * 0.30f,
+                            center = pos
+                        )
+
+                        val cleanLabel = formatConceptTitleCase(p.name)
+                        val textLayout = textMeasurer.measure(
+                            text = cleanLabel,
+                            style = TextStyle(
+                                color = labelColor,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        )
+                        drawText(
+                            textLayoutResult = textLayout,
+                            topLeft = Offset(
+                                x = (pos.x - textLayout.size.width / 2f).coerceIn(6f, w - textLayout.size.width - 6f),
+                                y = (pos.y + coreRadius + 6.dp.toPx()).coerceIn(6f, h - textLayout.size.height - 6f)
+                            )
                         )
                     }
-
-                    val orbitAngle = wavePhase * (if (p.spin >= 0f) 1.4f else -1.4f) + idx
-                    val satOffset = Offset(
-                        x = pos.x + cos(orbitAngle) * (coreRadius * 1.3f),
-                        y = pos.y + sin(orbitAngle) * (coreRadius * 1.3f)
-                    )
-                    drawCircle(
-                        color = baseColor.copy(alpha = 0.9f),
-                        radius = 3.5.dp.toPx(),
-                        center = satOffset
-                    )
-
-                    drawCircle(
-                        color = baseColor,
-                        radius = coreRadius,
-                        center = pos
-                    )
-
-                    drawCircle(
-                        color = canvasBg,
-                        radius = coreRadius * 0.32f,
-                        center = pos
-                    )
-
-                    val textLayout = textMeasurer.measure(
-                        text = p.name,
-                        style = TextStyle(
-                            color = labelColor,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                        )
-                    )
-                    drawText(
-                        textLayoutResult = textLayout,
-                        topLeft = Offset(
-                            x = (pos.x - textLayout.size.width / 2f).coerceIn(8f, w - textLayout.size.width - 8f),
-                            y = (pos.y + coreRadius + 6.dp.toPx()).coerceIn(8f, h - textLayout.size.height - 8f)
-                        )
-                    )
                 }
+
+                // Subtle Left & Right Frame Scroll Rails (Untouched by pointerInput so vertical scroll always works on the frame edges in Split-Screen!)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(18.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(18.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
+                )
             }
         }
 
@@ -585,16 +589,22 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Selected Sphere Inspector with Plain-Language Explanations for Every Slider
+        // Selected Sphere Inspector (2 Sliders Only: Importance/Hue & Sensation/Saturation; Pitch is Automatic!)
         AnimatedVisibility(visible = selectedParticle != null) {
             selectedParticle?.let { particle ->
+                val liveSphereColor = computeSynestheticSphereColor(
+                    importanceMass = particle.mass,
+                    heavinessWeight = particle.charge,
+                    isDarkTheme = isDark
+                )
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("selected_particle_card"),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                    border = BorderStroke(1.5.dp, liveSphereColor.copy(alpha = 0.7f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -605,13 +615,13 @@ fun FieldSimulationScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(16.dp)
+                                        .size(18.dp)
                                         .clip(CircleShape)
-                                        .background(Color(particle.colorHex))
+                                        .background(liveSphereColor)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = particle.name,
+                                    text = formatConceptTitleCase(particle.name),
                                     style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -639,9 +649,10 @@ fun FieldSimulationScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // 1. Size & Importance Slider
+                        // 1. Size & Importance Slider (Cold Blue -> Warm Red Hue)
+                        val importancePct = (((particle.mass - 0.4f) / 2.1f) * 100f).toInt().coerceIn(0, 100)
                         Text(
-                            text = "${strings.particleDetailMass}: ${(particle.mass * 40).toInt()}%",
+                            text = "${strings.particleDetailMass}: $importancePct%",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -653,18 +664,22 @@ fun FieldSimulationScreen(
                         Slider(
                             value = particle.mass,
                             onValueChange = { newMass ->
-                                onUpdateParticleParams(particle, newMass, particle.charge, particle.frequencyHz)
+                                onUpdateParticleImportanceAndHeaviness(particle, newMass, particle.charge)
                             },
-                            valueRange = 0.4f..2.5f
+                            valueRange = 0.4f..2.5f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = liveSphereColor,
+                                activeTrackColor = liveSphereColor
+                            )
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        // 2. Feeling Tone (Heavy/Tense <-> Light/Open) Slider
+                        // 2. Sensation Slider (0.0 = Leve [Left] <-> 1.0 = Pesada [Right])
                         val feelingLabel = when {
-                            particle.charge > 0.25f -> "Leve / Aberta"
-                            particle.charge < -0.25f -> "Tensa / Pesada"
-                            else -> "Neutra / Equilibrada"
+                            particle.charge < 0.35f -> "Leve / Suave (${(particle.charge * 100).toInt()}%)"
+                            particle.charge > 0.65f -> "Pesada / Densa (${(particle.charge * 100).toInt()}%)"
+                            else -> "Equilibrada (${(particle.charge * 100).toInt()}%)"
                         }
                         Text(
                             text = "${strings.particleDetailCharge}: $feelingLabel",
@@ -677,32 +692,15 @@ fun FieldSimulationScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Slider(
-                            value = particle.charge,
-                            onValueChange = { newCharge ->
-                                onUpdateParticleParams(particle, particle.mass, newCharge, particle.frequencyHz)
+                            value = particle.charge.coerceIn(0f, 1f),
+                            onValueChange = { newHeaviness ->
+                                onUpdateParticleImportanceAndHeaviness(particle, particle.mass, newHeaviness)
                             },
-                            valueRange = -1.0f..1.0f
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // 3. Musical Pitch Slider
-                        Text(
-                            text = "${strings.particleDetailFrequency}: ${particle.frequencyHz.toInt()} Hz",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = strings.particleDetailFrequencyHelp,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Slider(
-                            value = particle.frequencyHz,
-                            onValueChange = { newFreq ->
-                                onUpdateParticleParams(particle, particle.mass, particle.charge, newFreq)
-                            },
-                            valueRange = 136f..852f
+                            valueRange = 0.0f..1.0f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = liveSphereColor,
+                                activeTrackColor = liveSphereColor
+                            )
                         )
                     }
                 }
@@ -711,7 +709,7 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Add Any Emotion or Abstract Concept Card (Highlighting the creative freedom!)
+        // Add Any Emotion or Abstract Concept Card (Auto Title Case enforced!)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -753,7 +751,7 @@ fun FieldSimulationScreen(
                     Button(
                         onClick = {
                             if (customConceptInput.isNotBlank()) {
-                                onInjectConcept(customConceptInput, "CUSTOM")
+                                onInjectConcept(formatConceptTitleCase(customConceptInput), "CUSTOM")
                                 customConceptInput = ""
                             }
                         },

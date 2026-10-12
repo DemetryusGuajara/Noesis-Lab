@@ -1,8 +1,20 @@
 package com.example.audio
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import com.example.MainActivity
+import com.example.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,71 +24,219 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
+data class SphereAcousticNode(
+    val id: Long,
+    val name: String,
+    val importanceMass: Float, // 0.4f .. 2.5f
+    val weightHeaviness: Float, // 0.0f (Leve) .. 1.0f (Pesada)
+    val posX: Float,
+    val posY: Float
+) {
+    /**
+     * Automatic Pitch & Tension formula (Item 5):
+     * - High importance + High heaviness = Deep, low, tense pitch (~110Hz - 180Hz)
+     * - Low importance + Low heaviness (light) = Bright, relaxed pitch (~380Hz - 540Hz)
+     * - High importance + Low heaviness = Medium-warm resonant pitch (~240Hz - 320Hz)
+     */
+    fun computeBaseFrequencyHz(): Float {
+        val normImp = ((importanceMass - 0.4f) / 2.1f).coerceIn(0f, 1f)
+        val normWeight = weightHeaviness.coerceIn(0f, 1f)
+        val rawHz = 510f - (normImp * 200f) - (normWeight * 165f)
+        return rawHz.coerceIn(115f, 528f)
+    }
+}
+
+class MediaNotificationReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        when (intent?.action) {
+            MysticSoundEngine.ACTION_TOGGLE_PLAYBACK -> {
+                MysticSoundEngine.activeInstance?.togglePlaybackFromNotification()
+            }
+            MysticSoundEngine.ACTION_PAUSE_PLAYBACK -> {
+                MysticSoundEngine.activeInstance?.pausePlayback()
+            }
+        }
+    }
+}
+
 /**
- * Generative Harmonic & Synesthetic Soundscape Engine:
- * - Creates an evolving musical chord progression + atmospheric sound effects (water droplets,
- *   warm wind shimmer, crystalline bells, or deep tension pulse) driven directly by the emotions
- *   and concepts on the user's canvas.
- * - Keeps Binaural Beats as an OPTIONAL, toggleable subtle layer rather than the main focus.
+ * Modular Emotional Synthesizer & Media Player Engine:
+ * - No Binaural Beats.
+ * - No in-app mute button: behaves like a real Android Media Player with AudioFocus
+ *   (automatically pauses when another media app plays audio) and a Notification bar Play/Pause control.
+ * - Synthesizes real-time sum/difference frequencies (FM/AM coupling) from the proximity
+ *   and sliders (Importance + Heaviness) of all active spheres on the canvas.
  */
-class MysticSoundEngine {
+class MysticSoundEngine(private val appContext: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var musicJob: Job? = null
 
-    @Volatile
-    private var isSoundEnabled: Boolean = true
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     @Volatile
-    private var isBinauralEnabled: Boolean = false
+    private var isPlaying: Boolean = true
 
     @Volatile
-    private var targetRootHz: Float = 220f
+    private var sphereNodes: List<SphereAcousticNode> = emptyList()
 
     @Volatile
-    private var targetValence: Float = 0.65f // 0 = tense/minor, 1 = calm/warm major-lydian
+    private var bioArousal: Float = 0.45f
 
-    @Volatile
-    private var targetArousal: Float = 0.40f // 0 = slow water/ambient pad, 1 = rhythmic/intense
-
-    @Volatile
-    private var targetCoherence: Float = 0.80f
-
-    fun setSoundEnabled(enabled: Boolean) {
-        isSoundEnabled = enabled
-        if (!enabled) {
-            stopAmbientDrone()
-        } else {
-            startAmbientDroneIfNeeded()
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // Another app started playing audio -> pause automatically
+                pausePlayback()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Keep playing softly
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                // Resume if needed
+            }
         }
     }
 
-    fun setBinauralEnabled(enabled: Boolean) {
-        isBinauralEnabled = enabled
+    init {
+        activeInstance = this
+        setupNotificationChannel()
     }
 
-    fun updateEmotionalFieldAcoustics(
-        meanFrequencyHz: Float,
-        arousal: Float,
-        valence: Float,
-        coherence: Float
+    private fun setupNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Noesis Lab · Paisagem Sonora",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Controle de reprodução em segundo plano do sintetizador de estado mental"
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setOnAudioFocusChangeListener(focusChangeListener)
+                    .build()
+                audioFocusRequest = req
+                audioManager.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    focusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN
+                ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            }
+        }.getOrDefault(true)
+    }
+
+    fun updateMediaNotification() {
+        runCatching {
+            val openAppIntent = Intent(appContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val contentPendingIntent = PendingIntent.getActivity(
+                appContext,
+                0,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val toggleIntent = Intent(appContext, MediaNotificationReceiver::class.java).apply {
+                action = ACTION_TOGGLE_PLAYBACK
+            }
+            val togglePendingIntent = PendingIntent.getBroadcast(
+                appContext,
+                1,
+                toggleIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val activeNames = sphereNodes.take(4).joinToString(" · ") { it.name }.ifBlank { "Harmonia Modular" }
+            val actionTitle = if (isPlaying) "Pausar Som" else "Retomar Som"
+            val statusSubtitle = if (isPlaying) "Tocando: $activeNames" else "Pausado · Toque para retomar"
+
+            val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("Noesis Lab · Sintetizador de Estado")
+                .setContentText(statusSubtitle)
+                .setContentIntent(contentPendingIntent)
+                .setOngoing(isPlaying)
+                .setSilent(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .addAction(
+                    if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                    actionTitle,
+                    togglePendingIntent
+                )
+                .build()
+
+            notificationManager.notify(NOTIFICATION_ID, notification)
+        }
+    }
+
+    fun togglePlaybackFromNotification() {
+        if (isPlaying) {
+            pausePlayback()
+        } else {
+            resumePlayback()
+        }
+    }
+
+    fun pausePlayback() {
+        isPlaying = false
+        musicJob?.cancel()
+        musicJob = null
+        updateMediaNotification()
+    }
+
+    fun resumePlayback() {
+        if (requestAudioFocus()) {
+            isPlaying = true
+            startAmbientSynthesizerIfNeeded()
+            updateMediaNotification()
+        }
+    }
+
+    fun updateModularFieldState(
+        nodes: List<SphereAcousticNode>,
+        arousal: Float
     ) {
-        // Map mean frequency to a musical root note between 146Hz (D3) and 293Hz (D4)
-        targetRootHz = (meanFrequencyHz * 0.45f).coerceIn(130f, 310f)
-        targetArousal = arousal.coerceIn(0f, 1f)
-        targetValence = valence.coerceIn(0f, 1f)
-        targetCoherence = coherence.coerceIn(0f, 1f)
+        sphereNodes = nodes
+        bioArousal = arousal.coerceIn(0f, 1f)
+        if (isPlaying) {
+            startAmbientSynthesizerIfNeeded()
+            updateMediaNotification()
+        }
     }
 
-    fun startAmbientDroneIfNeeded() {
-        if (!isSoundEnabled) return
+    fun startAmbientSynthesizerIfNeeded() {
+        if (!isPlaying) return
         if (musicJob?.isActive == true) return
+        requestAudioFocus()
+        updateMediaNotification()
 
         musicJob = scope.launch {
             val sampleRate = 24000
-            val chunkSamples = sampleRate / 5 // 200ms audio frames
+            val chunkSamples = sampleRate / 5 // 200ms buffer
             val minBufSize = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
@@ -105,115 +265,131 @@ class MysticSoundEngine {
 
             runCatching { track.play() }
 
-            var pRoot = 0.0
-            var pThird = 0.0
-            var pFifth = 0.0
-            var pSeventh = 0.0
-            var pBinaural = 0.0
-            var pArp = 0.0
+            val nodePhases = DoubleArray(12) { 0.0 }
+            val couplingPhases = DoubleArray(12) { 0.0 }
             var lfoBreath = 0.0
-            var stepCounter = 0
-
-            // Procedural FX droplet / chime state
             var fxEnv = 0.0
-            var fxFreq = 528.0
+            var fxFreq = 432.0
             var fxPhase = 0.0
+            var stepCounter = 0
 
             val pcmBuffer = ShortArray(chunkSamples)
 
             try {
-                while (isActive && isSoundEnabled) {
-                    val root = targetRootHz.toDouble()
-                    val valence = targetValence.toDouble()
-                    val arousal = targetArousal.toDouble()
+                while (isActive && isPlaying) {
+                    val nodes = sphereNodes.take(8)
+                    val count = nodes.size.coerceAtLeast(1)
 
-                    // Musical Chord Intervals based on emotional valence:
-                    // High valence -> Major 9th / Lydian warm ratios (1.0, 1.25, 1.5, 1.875)
-                    // Mid valence -> Suspended / Dreamy ratios (1.0, 1.333, 1.5, 1.778)
-                    // Low valence -> Minor / Tense ratios (1.0, 1.189, 1.498, 1.782)
-                    val thirdRatio = when {
-                        valence > 0.62 -> 1.2500 // Major 3rd
-                        valence > 0.38 -> 1.3333 // Suspended 4th
-                        else -> 1.1892           // Minor 3rd
-                    }
-                    val fifthRatio = if (valence < 0.25) 1.4142 else 1.4983 // Diminished vs Perfect 5th
-                    val seventhRatio = if (valence > 0.55) 1.8750 else 1.7818 // Major 7th vs Minor 7th
+                    // Calculate each sphere's individual pitch and proximity-coupled sum/difference tones
+                    val baseFreqs = DoubleArray(count)
+                    val tensionWeights = DoubleArray(count)
+                    val coupledSumDiffFreqs = DoubleArray(count)
+                    val couplingStrengths = DoubleArray(count)
 
-                    // Gentle melodic arpeggio note that shifts every few chunks
-                    val arpMultipliers = doubleArrayOf(1.0, thirdRatio, fifthRatio, seventhRatio, 2.0)
-                    val activeArpMult = arpMultipliers[(stepCounter / 4) % arpMultipliers.size]
-                    val fArp = root * activeArpMult * 2.0
+                    if (nodes.isEmpty()) {
+                        baseFreqs[0] = 256.0
+                        tensionWeights[0] = 0.3
+                        coupledSumDiffFreqs[0] = 384.0
+                        couplingStrengths[0] = 0.3
+                    } else {
+                        for (i in 0 until count) {
+                            val n1 = nodes[i]
+                            val f1 = n1.computeBaseFrequencyHz().toDouble()
+                            baseFreqs[i] = f1
+                            tensionWeights[i] = n1.weightHeaviness.toDouble()
 
-                    // Randomly trigger nature/synesthetic FX (water droplet in calm mode, warm shimmer in vibrant mode)
-                    if (stepCounter % 6 == 0 && Random.nextFloat() < (0.45f + arousal * 0.35f)) {
-                        fxEnv = 1.0
-                        fxFreq = if (valence >= 0.45) {
-                            // Calm crystalline water droplet / harp harmonic
-                            root * arpMultipliers[Random.nextInt(arpMultipliers.size)] * 3.0
-                        } else {
-                            // Deep resonant pulse FX for tense states
-                            root * 1.1892 * 1.5
+                            // Find nearest sphere to compute modular synthesizer sum/subtraction coupling
+                            var nearestDist = 10f
+                            var nearestFreq = f1 * 1.5
+                            var nearestHeaviness = n1.weightHeaviness
+                            for (j in 0 until count) {
+                                if (i == j) continue
+                                val n2 = nodes[j]
+                                val d = hypot(n2.posX - n1.posX, n2.posY - n1.posY)
+                                if (d < nearestDist) {
+                                    nearestDist = d
+                                    nearestFreq = n2.computeBaseFrequencyHz().toDouble()
+                                    nearestHeaviness = n2.weightHeaviness
+                                }
+                            }
+
+                            // Proximity factor: 0.0 (far apart) to 1.0 (touching)
+                            val proximity = (1.0f - (nearestDist / 0.65f)).coerceIn(0f, 1f).toDouble()
+                            couplingStrengths[i] = proximity
+
+                            // Modular Sum/Difference Frequency synthesis:
+                            // Light sensation -> harmonic sum average + fifth; Heavy sensation -> sub-harmonic difference tone
+                            val meanF = (f1 + nearestFreq) * 0.5
+                            val diffF = kotlin.math.abs(f1 - nearestFreq).coerceAtLeast(32.0)
+                            val combinedHeaviness = (n1.weightHeaviness + nearestHeaviness) * 0.5f
+                            coupledSumDiffFreqs[i] = if (combinedHeaviness > 0.55f) {
+                                // Tense/Heavy -> deeper difference modulation
+                                (meanF - diffF * 0.35 * proximity).coerceIn(95.0, 640.0)
+                            } else {
+                                // Light/Relaxed -> luminous harmonic sum
+                                (meanF + diffF * 0.45 * proximity).coerceIn(140.0, 780.0)
+                            }
                         }
+                    }
+
+                    // Gentle procedural chime/water droplet FX
+                    val avgHeaviness = tensionWeights.average()
+                    if (stepCounter % 6 == 0 && Random.nextFloat() < (0.42f + bioArousal * 0.3f)) {
+                        fxEnv = 1.0
+                        val pickFreq = baseFreqs[Random.nextInt(count)]
+                        fxFreq = if (avgHeaviness < 0.55) pickFreq * 2.0 else pickFreq * 1.1892
                     }
                     stepCounter++
 
-                    val incRoot = 2.0 * PI * root / sampleRate
-                    val incThird = 2.0 * PI * (root * thirdRatio) / sampleRate
-                    val incFifth = 2.0 * PI * (root * fifthRatio) / sampleRate
-                    val incSeventh = 2.0 * PI * (root * seventhRatio) / sampleRate
-                    val incArp = 2.0 * PI * fArp / sampleRate
-
-                    // Optional Binaural offset (only active when user toggles it on)
-                    val binauralOffsetHz = 5.5 + arousal * 7.0
-                    val incBinaural = 2.0 * PI * (root + binauralOffsetHz) / sampleRate
-
-                    val breathRateHz = 0.14 + arousal * 0.25
+                    val breathRateHz = 0.14 + bioArousal * 0.20
                     val lfoInc = 2.0 * PI * breathRateHz / sampleRate
 
-                    for (i in 0 until chunkSamples) {
-                        val breath = 0.65 + 0.35 * sin(lfoBreath)
+                    for (s in 0 until chunkSamples) {
+                        val breath = 0.68 + 0.32 * sin(lfoBreath)
+                        var mixedSignal = 0.0
 
-                        // Warm generative chord pad
-                        var signal = (
-                            0.34 * sin(pRoot) +
-                            0.24 * sin(pThird) +
-                            0.22 * sin(pFifth) +
-                            0.12 * sin(pSeventh) +
-                            0.08 * sin(pArp)
-                        ) * breath
+                        for (i in 0 until count) {
+                            val fBase = baseFreqs[i]
+                            val fCoupled = coupledSumDiffFreqs[i]
+                            val prox = couplingStrengths[i]
+                            val heaviness = tensionWeights[i]
 
-                        // Add optional Binaural Beat layer only if enabled by the user
-                        if (isBinauralEnabled) {
-                            signal += 0.18 * sin(pBinaural)
+                            val incBase = 2.0 * PI * fBase / sampleRate
+                            val incCoupled = 2.0 * PI * fCoupled / sampleRate
+
+                            nodePhases[i] = (nodePhases[i] + incBase) % (2.0 * PI)
+                            couplingPhases[i] = (couplingPhases[i] + incCoupled) % (2.0 * PI)
+
+                            // Fundamental + gentle warm overtone + proximity coupled wave
+                            val overtoneRatio = if (heaviness > 0.6) 1.1892 else 1.4983
+                            val nodeWave = (
+                                0.55 * sin(nodePhases[i]) +
+                                0.20 * sin(nodePhases[i] * overtoneRatio) +
+                                (0.25 * prox) * sin(couplingPhases[i])
+                            )
+                            mixedSignal += nodeWave / count.toDouble()
                         }
 
-                        // Add procedural Sound FX (droplet / chime / pulse)
+                        var sampleVal = mixedSignal * breath
+
                         if (fxEnv > 0.002) {
                             val fxInc = 2.0 * PI * fxFreq / sampleRate
-                            signal += 0.22 * sin(fxPhase) * fxEnv
+                            sampleVal += 0.20 * sin(fxPhase) * fxEnv
                             fxPhase = (fxPhase + fxInc) % (2.0 * PI)
-                            fxEnv *= if (valence >= 0.45) 0.9994 else 0.9996
+                            fxEnv *= 0.9995
                         }
 
-                        val finalSample = (signal * 0.13 * Short.MAX_VALUE).toInt()
+                        pcmBuffer[s] = (sampleVal * 0.16 * Short.MAX_VALUE).toInt()
                             .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                             .toShort()
 
-                        pcmBuffer[i] = finalSample
-
-                        pRoot = (pRoot + incRoot) % (2.0 * PI)
-                        pThird = (pThird + incThird) % (2.0 * PI)
-                        pFifth = (pFifth + incFifth) % (2.0 * PI)
-                        pSeventh = (pSeventh + incSeventh) % (2.0 * PI)
-                        pArp = (pArp + incArp) % (2.0 * PI)
-                        pBinaural = (pBinaural + incBinaural) % (2.0 * PI)
                         lfoBreath = (lfoBreath + lfoInc) % (2.0 * PI)
                     }
 
                     track.write(pcmBuffer, 0, chunkSamples)
                 }
             } catch (_: Throwable) {
-                // Ignore audio interruption in test environments
+                // Ignore audio hardware interruption in test environments
             } finally {
                 runCatching {
                     track.stop()
@@ -223,24 +399,20 @@ class MysticSoundEngine {
         }
     }
 
-    fun stopAmbientDrone() {
-        musicJob?.cancel()
-        musicJob = null
-    }
-
-    /**
-     * Plays a pleasant harmonic chord pluck / sound effect when touching or colliding spheres.
-     */
-    fun triggerTouchHarmonic(frequencyHz: Float, valence: Float = 0.5f, durationMs: Int = 380) {
-        if (!isSoundEnabled) return
+    fun triggerSphereTouchChord(importanceMass: Float, weightHeaviness: Float, durationMs: Int = 360) {
+        if (!isPlaying) return
         scope.launch {
             runCatching {
                 val sampleRate = 24000
                 val numSamples = (sampleRate * (durationMs / 1000.0)).toInt().coerceAtLeast(1000)
                 val pcm = ShortArray(numSamples)
 
-                val baseFreq = frequencyHz.coerceIn(130f, 960f).toDouble()
-                val thirdRatio = if (valence >= 0f) 1.25 else 1.1892
+                val normImp = ((importanceMass - 0.4f) / 2.1f).coerceIn(0f, 1f)
+                val normWeight = weightHeaviness.coerceIn(0f, 1f)
+                val baseFreq = (510f - (normImp * 200f) - (normWeight * 165f)).coerceIn(115f, 528f).toDouble()
+
+                // Light sensation -> Major 3rd + Perfect 5th; Heavy sensation -> Minor 3rd + Fifth
+                val thirdRatio = if (normWeight <= 0.5f) 1.25 else 1.1892
                 val fifthRatio = 1.4983
 
                 for (i in 0 until numSamples) {
@@ -253,7 +425,7 @@ class MysticSoundEngine {
                         0.52 * sin(2.0 * PI * baseFreq * t) +
                         0.30 * sin(2.0 * PI * (baseFreq * thirdRatio) * t) +
                         0.18 * sin(2.0 * PI * (baseFreq * fifthRatio) * t)
-                    ) * env * 0.30
+                    ) * env * 0.28
 
                     pcm[i] = (signal * Short.MAX_VALUE).toInt()
                         .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
@@ -285,5 +457,26 @@ class MysticSoundEngine {
                 track.release()
             }
         }
+    }
+
+    fun releaseEngine() {
+        notificationManager.cancel(NOTIFICATION_ID)
+        musicJob?.cancel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(focusChangeListener)
+        }
+    }
+
+    companion object {
+        const val CHANNEL_ID = "noesis_soundscape_channel"
+        const val NOTIFICATION_ID = 4321
+        const val ACTION_TOGGLE_PLAYBACK = "com.aistudio.noesislab.ACTION_TOGGLE_PLAYBACK"
+        const val ACTION_PAUSE_PLAYBACK = "com.aistudio.noesislab.ACTION_PAUSE_PLAYBACK"
+
+        @Volatile
+        var activeInstance: MysticSoundEngine? = null
     }
 }

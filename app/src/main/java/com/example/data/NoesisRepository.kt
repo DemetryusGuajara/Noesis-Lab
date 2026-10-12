@@ -2,13 +2,13 @@ package com.example.data
 
 import android.content.Context
 import android.net.Uri
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.i18n.AppLanguage
 import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -25,8 +25,6 @@ private val Context.dataStore by preferencesDataStore(name = "noesis_settings")
 data class UserPreferencesState(
     val themeMode: ThemeMode = ThemeMode.DARK,
     val language: AppLanguage = AppLanguage.SYSTEM,
-    val soundEnabled: Boolean = true,
-    val binauralEnabled: Boolean = false,
     val bioArousal: Float = 0.45f,
     val bioValence: Float = 0.65f,
     val bioFocus: Float = 0.75f
@@ -39,8 +37,6 @@ class NoesisRepository(
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
-        val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
-        val BINAURAL_ENABLED = booleanPreferencesKey("binaural_enabled")
         val BIO_AROUSAL = floatPreferencesKey("bio_arousal")
         val BIO_VALENCE = floatPreferencesKey("bio_valence")
         val BIO_FOCUS = floatPreferencesKey("bio_focus")
@@ -52,8 +48,6 @@ class NoesisRepository(
         UserPreferencesState(
             themeMode = runCatching { ThemeMode.valueOf(themeStr) }.getOrDefault(ThemeMode.DARK),
             language = AppLanguage.fromCode(langStr),
-            soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
-            binauralEnabled = prefs[Keys.BINAURAL_ENABLED] ?: false,
             bioArousal = prefs[Keys.BIO_AROUSAL] ?: 0.45f,
             bioValence = prefs[Keys.BIO_VALENCE] ?: 0.65f,
             bioFocus = prefs[Keys.BIO_FOCUS] ?: 0.75f
@@ -64,6 +58,7 @@ class NoesisRepository(
     val zonesFlow: Flow<List<ArchitecturalZoneEntity>> = dao.observeZones()
     val logsFlow: Flow<List<SimulationLogEntity>> = dao.observeSimulationLogs()
     val providersFlow: Flow<List<AiProviderEntity>> = dao.observeProviders()
+    val journalEntriesFlow: Flow<List<JournalEntryEntity>> = dao.observeJournalEntries()
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME_MODE] = mode.name }
@@ -71,14 +66,6 @@ class NoesisRepository(
 
     suspend fun setLanguage(language: AppLanguage) {
         context.dataStore.edit { it[Keys.APP_LANGUAGE] = language.code }
-    }
-
-    suspend fun setSoundEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.SOUND_ENABLED] = enabled }
-    }
-
-    suspend fun setBinauralEnabled(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.BINAURAL_ENABLED] = enabled }
     }
 
     suspend fun updateBiofeedback(arousal: Float, valence: Float, focus: Float) {
@@ -106,9 +93,9 @@ class NoesisRepository(
                     biofeedbackFocus = 0.78f,
                     wikiSourcesJson = "[]",
                     academicSourcesJson = "[]",
-                    narrativeResponse = "Olhando para o desenho das esferas na sua tela, você reuniu **Desejo**, **Medo**, **Tempo** e **Criatividade**.\n\nQuando colocamos o **Medo** perto do **Desejo**, muitas vezes sentimos uma trava — como se quiséssemos avançar e frear ao mesmo tempo. Mas repare que, no seu mapa, a **Criatividade** e o **Tempo** servem como uma ponte entre eles: você não precisa ter todas as certezas agora para dar o próximo passo.",
-                    somaticSuggestion = "Respire fundo pelo nariz e solte o ar devagar pela boca. Olhe para as cores suaves do aplicativo e imagine que qualquer pressa ou cobrança vai diminuindo de tamanho, abrindo espaço para a sua curiosidade.",
-                    providerUsed = "Motor Criativo Integrado",
+                    narrativeResponse = "### O Desenho do Seu Estado Atual: Desejo, Medo, Tempo, Criatividade\nOlhando para o desenho das esferas na sua tela, você reuniu **Desejo**, **Medo**, **Tempo** e **Criatividade**.\n\n- **A Conversa Entre as Esferas:** Quando colocamos o **Medo** perto do **Desejo**, muitas vezes sentimos uma dúvida entre avançar e cautela. Mas repare que, no seu mapa, a **Criatividade** e o **Tempo** servem como uma ponte luminosa entre eles: você não precisa ter todas as certezas agora para dar o próximo passo.",
+                    somaticSuggestion = "**Experimento de Fusão Cromática (Desejo + Criatividade):** Olhe para o degradê de cores que une **Desejo** e **Criatividade** no seu campo gravitacional. Inspire pelo nariz por 4 segundos sentindo a cor mais fria refrescar a mente, e solte o ar pela boca por 6 segundos deixando a cor mais quente relaxar os ombros.",
+                    providerUsed = "Motor Interno + Pesquisa Web",
                     languageCode = "pt"
                 )
             )
@@ -125,6 +112,9 @@ class NoesisRepository(
 
     suspend fun updateZone(zone: ArchitecturalZoneEntity) = dao.upsertZone(zone)
     suspend fun addSimulationLog(log: SimulationLogEntity) = dao.insertSimulationLog(log)
+
+    suspend fun addJournalEntry(entry: JournalEntryEntity): Long = dao.insertJournalEntry(entry)
+    suspend fun deleteJournalEntry(id: Long) = dao.deleteJournalEntry(id)
 
     suspend fun saveVerifiedProvider(provider: AiProviderEntity): Long {
         if (provider.isActive) {
@@ -151,16 +141,15 @@ class NoesisRepository(
             val zones = dao.getAllZonesOnce()
             val logs = dao.getAllLogsOnce()
             val providers = dao.getAllProvidersOnce()
+            val journalEntries = dao.getAllJournalEntriesOnce()
 
             val root = JSONObject().apply {
-                put("schemaVersion", 2)
+                put("schemaVersion", 3)
                 put("exportedAt", System.currentTimeMillis())
                 put("app", "Noesis Lab")
                 put("preferences", JSONObject().apply {
                     put("themeMode", prefs.themeMode.name)
                     put("language", prefs.language.code)
-                    put("soundEnabled", prefs.soundEnabled)
-                    put("binauralEnabled", prefs.binauralEnabled)
                     put("bioArousal", prefs.bioArousal.toDouble())
                     put("bioValence", prefs.bioValence.toDouble())
                     put("bioFocus", prefs.bioFocus.toDouble())
@@ -168,7 +157,7 @@ class NoesisRepository(
                 put("particles", JSONArray().apply {
                     particles.forEach { p ->
                         put(JSONObject().apply {
-                            put("name", p.name)
+                            put("name", formatConceptTitleCase(p.name))
                             put("archetypeKey", p.archetypeKey)
                             put("mass", p.mass.toDouble())
                             put("charge", p.charge.toDouble())
@@ -219,6 +208,22 @@ class NoesisRepository(
                         })
                     }
                 })
+                put("journalEntries", JSONArray().apply {
+                    journalEntries.forEach { j ->
+                        put(JSONObject().apply {
+                            put("timestamp", j.timestamp)
+                            put("titleSummary", j.titleSummary)
+                            put("particlesSnapshotJson", j.particlesSnapshotJson)
+                            put("zonesSnapshotJson", j.zonesSnapshotJson)
+                            put("userNotesPrompt", j.userNotesPrompt)
+                            put("narrativeText", j.narrativeText)
+                            put("somaticExerciseText", j.somaticExerciseText)
+                            put("bioArousal", j.bioArousal.toDouble())
+                            put("bioValence", j.bioValence.toDouble())
+                            put("bioFocus", j.bioFocus.toDouble())
+                        })
+                    }
+                })
                 put("providers", JSONArray().apply {
                     providers.forEach { pr ->
                         put(JSONObject().apply {
@@ -257,8 +262,6 @@ class NoesisRepository(
                         .getOrDefault(ThemeMode.DARK)
                 )
                 setLanguage(AppLanguage.fromCode(prefObj.optString("language", "system")))
-                setSoundEnabled(prefObj.optBoolean("soundEnabled", true))
-                setBinauralEnabled(prefObj.optBoolean("binauralEnabled", false))
                 updateBiofeedback(
                     arousal = prefObj.optDouble("bioArousal", 0.45).toFloat(),
                     valence = prefObj.optDouble("bioValence", 0.65).toFloat(),
@@ -272,11 +275,11 @@ class NoesisRepository(
                     val o = arr.getJSONObject(i)
                     list.add(
                         ConceptParticleEntity(
-                            name = o.optString("name", "Conceito"),
+                            name = formatConceptTitleCase(o.optString("name", "Conceito")),
                             archetypeKey = o.optString("archetypeKey", "CUSTOM"),
-                            mass = o.optDouble("mass", 1.0).toFloat(),
-                            charge = o.optDouble("charge", 0.0).toFloat(),
-                            frequencyHz = o.optDouble("frequencyHz", 432.0).toFloat(),
+                            mass = o.optDouble("mass", 1.2).toFloat().coerceIn(0.4f, 2.5f),
+                            charge = o.optDouble("charge", 0.35).toFloat().coerceIn(0f, 1f),
+                            frequencyHz = o.optDouble("frequencyHz", 320.0).toFloat(),
                             spin = o.optDouble("spin", 0.5).toFloat(),
                             posX = o.optDouble("posX", 0.5).toFloat(),
                             posY = o.optDouble("posY", 0.5).toFloat(),
@@ -347,6 +350,31 @@ class NoesisRepository(
                 }
             }
 
+            root.optJSONArray("journalEntries")?.let { arr ->
+                val list = mutableListOf<JournalEntryEntity>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    list.add(
+                        JournalEntryEntity(
+                            timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                            titleSummary = o.optString("titleSummary", "Registro"),
+                            particlesSnapshotJson = o.optString("particlesSnapshotJson", "[]"),
+                            zonesSnapshotJson = o.optString("zonesSnapshotJson", "[]"),
+                            userNotesPrompt = o.optString("userNotesPrompt", ""),
+                            narrativeText = o.optString("narrativeText", ""),
+                            somaticExerciseText = o.optString("somaticExerciseText", ""),
+                            bioArousal = o.optDouble("bioArousal", 0.45).toFloat(),
+                            bioValence = o.optDouble("bioValence", 0.65).toFloat(),
+                            bioFocus = o.optDouble("bioFocus", 0.75).toFloat()
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) {
+                    dao.clearAllJournalEntries()
+                    dao.insertJournalEntries(list)
+                }
+            }
+
             root.optJSONArray("providers")?.let { arr ->
                 val list = mutableListOf<AiProviderEntity>()
                 for (i in 0 until arr.length()) {
@@ -378,9 +406,9 @@ class NoesisRepository(
             ConceptParticleEntity(
                 name = "Desejo",
                 archetypeKey = "DESIRE",
-                mass = 1.60f,
-                charge = 0.85f,
-                frequencyHz = 432f,
+                mass = 2.05f,    // Warm Red-Orange Hue
+                charge = 0.42f,  // Medium-light saturation
+                frequencyHz = 285f,
                 spin = 1.2f,
                 posX = 0.28f,
                 posY = 0.35f,
@@ -390,9 +418,9 @@ class NoesisRepository(
             ConceptParticleEntity(
                 name = "Medo",
                 archetypeKey = "FEAR",
-                mass = 1.35f,
-                charge = -0.65f,
-                frequencyHz = 310f,
+                mass = 1.15f,    // Teal-Blue Hue
+                charge = 0.78f,  // Higher saturation & heavier weight
+                frequencyHz = 210f,
                 spin = -1.2f,
                 posX = 0.72f,
                 posY = 0.33f,
@@ -402,9 +430,9 @@ class NoesisRepository(
             ConceptParticleEntity(
                 name = "Tempo",
                 archetypeKey = "TIME",
-                mass = 1.85f,
-                charge = 0.20f,
-                frequencyHz = 528f,
+                mass = 1.65f,    // Warm Gold-Yellow Hue
+                charge = 0.35f,  // Light-balanced saturation
+                frequencyHz = 340f,
                 spin = 0.6f,
                 posX = 0.50f,
                 posY = 0.64f,
@@ -414,9 +442,9 @@ class NoesisRepository(
             ConceptParticleEntity(
                 name = "Criatividade",
                 archetypeKey = "CUSTOM",
-                mass = 1.50f,
-                charge = 0.75f,
-                frequencyHz = 639f,
+                mass = 0.85f,    // Cool Sky-Cyan Hue
+                charge = 0.22f,  // Light airy saturation
+                frequencyHz = 432f,
                 spin = 0.9f,
                 posX = 0.26f,
                 posY = 0.70f,
@@ -433,13 +461,13 @@ class NoesisRepository(
                 conceptDomain = "Pausa, Desapego & Mente Clara",
                 geometryType = "VOID_GARDEN",
                 elevationLevel = 0.90f,
-                luminosity = 0.90f,
-                tensionIndex = 0.15f,
+                luminosity = 0.85f,
+                tensionIndex = 0.20f,
                 resonantHz = 528f,
                 mapX = 0.50f,
                 mapY = 0.16f,
                 connectedZonesCsv = "zone_time,zone_identity,zone_justice",
-                architecturalDescription = "Um terraço aberto e silencioso na sua mente. É o lugar para onde você vai quando precisa soltar o excesso de pensamentos e respirar sem cobrança."
+                architecturalDescription = "Um terraço aberto e silencioso na sua mente. Representa sua reserva de calma, pausa e respiro diante dos estímulos do dia."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_identity",
@@ -454,7 +482,7 @@ class NoesisRepository(
                 mapX = 0.20f,
                 mapY = 0.36f,
                 connectedZonesCsv = "zone_emptiness,zone_desire,zone_fear",
-                architecturalDescription = "A sala onde ficam a sua história, os seus gostos e a forma como você se vê. Aumentar a clareza aqui ajuda a ser mais gentil consigo mesmo."
+                architecturalDescription = "A sala onde ficam a sua história, seus gostos e a forma como você se percebe hoje."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_justice",
@@ -469,7 +497,7 @@ class NoesisRepository(
                 mapX = 0.80f,
                 mapY = 0.36f,
                 connectedZonesCsv = "zone_emptiness,zone_power,zone_time",
-                architecturalDescription = "O espaço onde você pesa decisões e busca equilíbrio entre o que entrega aos outros e o que guarda para si."
+                architecturalDescription = "O espaço onde você pesa decisões e busca harmonia entre o que entrega ao mundo e o que preserva para si."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_time",
@@ -484,7 +512,7 @@ class NoesisRepository(
                 mapX = 0.50f,
                 mapY = 0.50f,
                 connectedZonesCsv = "zone_emptiness,zone_desire,zone_fear,zone_justice,zone_power",
-                architecturalDescription = "O corredor central que liga lembranças antigas aos planos futuros. Diminuir a pressão aqui reduz a pressa e a ansiedade pelo amanhã."
+                architecturalDescription = "O corredor central que liga lembranças antigas aos planos futuros, medindo o ritmo e a urgência do seu momento."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_desire",
@@ -499,22 +527,22 @@ class NoesisRepository(
                 mapX = 0.22f,
                 mapY = 0.70f,
                 connectedZonesCsv = "zone_identity,zone_time,zone_power",
-                architecturalDescription = "Um ambiente quente e cheio de vida onde nascem seus projetos, sonhos e tudo o que faz seus olhos brilharem."
+                architecturalDescription = "Um ambiente quente e cheio de vida onde nascem seus projetos, sonhos e aquilo que desperta seu interesse."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_power",
                 titleKey = "archRoomPower",
                 customTitle = "Oficina da Ação",
-                conceptDomain = "Força Pessoal, Coragem & Limites",
+                conceptDomain = "Força Pessoal, Coragem & Realização",
                 geometryType = "MONOLITH",
                 elevationLevel = -0.35f,
                 luminosity = 0.58f,
-                tensionIndex = 0.72f,
+                tensionIndex = 0.65f,
                 resonantHz = 256f,
                 mapX = 0.78f,
                 mapY = 0.70f,
                 connectedZonesCsv = "zone_justice,zone_time,zone_desire,zone_fear",
-                architecturalDescription = "Onde a sua energia vira atitude prática. Ajustar este espaço ajuda a transformar irritação ou controle excessivo em força construtiva."
+                architecturalDescription = "Onde a sua energia mental se transforma em decisão, foco e atitude prática."
             ),
             ArchitecturalZoneEntity(
                 zoneId = "zone_fear",
@@ -523,13 +551,13 @@ class NoesisRepository(
                 conceptDomain = "Medos, Dúvidas & Autoproteção",
                 geometryType = "LABYRINTH",
                 elevationLevel = -0.75f,
-                luminosity = 0.42f,
-                tensionIndex = 0.80f,
+                luminosity = 0.48f,
+                tensionIndex = 0.70f,
                 resonantHz = 196f,
                 mapX = 0.50f,
                 mapY = 0.85f,
                 connectedZonesCsv = "zone_identity,zone_time,zone_power",
-                architecturalDescription = "A sala subterrânea onde ficam guardadas as inseguranças e alertas. Quando você traz luz e reduz a pressão aqui, o medo deixa de assustar e vira apenas prudência."
+                architecturalDescription = "O espaço de vigilância onde ficam armazenados os alertas, receios e mecanismos de proteção da mente."
             )
         )
     }

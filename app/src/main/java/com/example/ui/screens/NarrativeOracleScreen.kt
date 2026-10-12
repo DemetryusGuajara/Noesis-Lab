@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.AssistChip
@@ -29,20 +30,22 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -50,11 +53,12 @@ import com.example.viewmodel.NoesisUiState
 fun NarrativeOracleScreen(
     uiState: NoesisUiState,
     onUpdateBiofeedback: (Float, Float, Float) -> Unit,
-    onRunSimulation: (String) -> Unit
+    onUpdateDraftPrompt: (String) -> Unit,
+    onRunSimulation: (String) -> Unit,
+    onSaveStateToJournal: () -> Unit
 ) {
     val strings = uiState.strings
     val prefs = uiState.preferences
-    var promptText by remember { mutableStateOf("") }
 
     val activeProvider = uiState.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
     val activeEngineLabel = if (activeProvider != null) {
@@ -76,7 +80,7 @@ fun NarrativeOracleScreen(
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("narrative_oracle_screen")
     ) {
-        // Header Card + Clear Connection Banner (Explaining how Tab 1 + Tab 3 work together)
+        // Header Card + Clear Connection Banner
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -110,7 +114,6 @@ fun NarrativeOracleScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Active Spheres Brought Over from Tab 1
                 Text(
                     text = "${strings.activeParticlesTitle} (Aba 1):",
                     style = MaterialTheme.typography.labelMedium,
@@ -124,7 +127,12 @@ fun NarrativeOracleScreen(
                     uiState.particles.forEach { p ->
                         AssistChip(
                             onClick = {},
-                            label = { Text(p.name, style = MaterialTheme.typography.labelSmall) }
+                            label = {
+                                Text(
+                                    text = formatConceptTitleCase(p.name),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
                         )
                     }
                 }
@@ -148,7 +156,7 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Body & Feeling Sliders with Clear Explanations
+        // Body & Feeling Sliders
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -158,9 +166,7 @@ fun NarrativeOracleScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.GraphicEq,
                         contentDescription = strings.biofeedbackPanelTitle,
@@ -250,7 +256,7 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Text Box Card (Complements Tab 1 without erasing it)
+        // Text Box Card + Quick Save to Journal Button
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -265,8 +271,8 @@ fun NarrativeOracleScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = promptText,
-                    onValueChange = { promptText = it },
+                    value = uiState.currentDraftPrompt,
+                    onValueChange = onUpdateDraftPrompt,
                     placeholder = {
                         Text(
                             text = strings.promptInputPlaceholder,
@@ -282,8 +288,7 @@ fun NarrativeOracleScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 Button(
                     onClick = {
-                        onRunSimulation(promptText)
-                        promptText = ""
+                        onRunSimulation(uiState.currentDraftPrompt)
                     },
                     enabled = !uiState.isSimulating,
                     modifier = Modifier
@@ -315,6 +320,30 @@ fun NarrativeOracleScreen(
                         Text(strings.runSimulationButton)
                     }
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onSaveStateToJournal,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("oracle_save_journal_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BookmarkAdd,
+                        contentDescription = strings.saveCurrentStateToJournalButton,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = strings.saveCurrentStateToJournalButton,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "${strings.activeProviderChip} $activeEngineLabel",
@@ -326,7 +355,7 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Clean, Accessible Reflections History (No backend Wikipedia/Crossref citations shown!)
+        // Clean, Properly Rendered Markdown Reflections History (Item 11)
         uiState.logs.forEach { log ->
             Card(
                 modifier = Modifier
@@ -355,10 +384,9 @@ fun NarrativeOracleScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(
-                        text = log.narrativeResponse,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                    FormattedMarkdownText(
+                        markdown = log.narrativeResponse,
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -376,16 +404,114 @@ fun NarrativeOracleScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = log.somaticSuggestion,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FormattedMarkdownText(
+                                markdown = log.somaticSuggestion,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Rich Markdown Renderer for Jetpack Compose (Item 11):
+ * Parses headings (`#`, `##`, `###`), bullet lists (`- `, `* `), bold (`**...**`),
+ * and italics (`*...*`) so raw markdown symbols never leak into the UI.
+ */
+@Composable
+fun FormattedMarkdownText(
+    markdown: String,
+    modifier: Modifier = Modifier
+) {
+    val lines = markdown.lines()
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        lines.forEach { rawLine ->
+            val trimmed = rawLine.trim()
+            if (trimmed.isEmpty()) {
+                Spacer(modifier = Modifier.height(2.dp))
+            } else if (trimmed.startsWith("### ")) {
+                Text(
+                    text = parseInlineMarkdown(trimmed.removePrefix("### ").trim()),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            } else if (trimmed.startsWith("## ")) {
+                Text(
+                    text = parseInlineMarkdown(trimmed.removePrefix("## ").trim()),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            } else if (trimmed.startsWith("# ")) {
+                Text(
+                    text = parseInlineMarkdown(trimmed.removePrefix("# ").trim()),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                val content = trimmed.substring(2).trim()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        text = "•  ",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = parseInlineMarkdown(content),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                Text(
+                    text = parseInlineMarkdown(trimmed),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+private fun parseInlineMarkdown(text: String) = buildAnnotatedString {
+    var i = 0
+    val n = text.length
+    while (i < n) {
+        if (i + 1 < n && text[i] == '*' && text[i + 1] == '*') {
+            val end = text.indexOf("**", i + 2)
+            if (end != -1) {
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                    append(text.substring(i + 2, end))
+                }
+                i = end + 2
+                continue
+            }
+        }
+        if (text[i] == '*') {
+            val end = text.indexOf('*', i + 1)
+            if (end != -1) {
+                withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                    append(text.substring(i + 1, end))
+                }
+                i = end + 1
+                continue
+            }
+        }
+        append(text[i])
+        i++
     }
 }

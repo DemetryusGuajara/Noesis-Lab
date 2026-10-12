@@ -5,9 +5,11 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.MysticSoundEngine
+import com.example.audio.SphereAcousticNode
 import com.example.data.AiProviderEntity
 import com.example.data.ArchitecturalZoneEntity
 import com.example.data.ConceptParticleEntity
+import com.example.data.JournalEntryEntity
 import com.example.data.NoesisDatabase
 import com.example.data.NoesisRepository
 import com.example.data.SimulationLogEntity
@@ -19,6 +21,7 @@ import com.example.network.GroundingAndAiService
 import com.example.network.GroundingBundle
 import com.example.network.ProviderVerificationReport
 import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +31,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.random.Random
 
 enum class NoesisTab {
@@ -37,17 +41,28 @@ enum class NoesisTab {
     SETTINGS
 }
 
+data class DiagnosedZoneState(
+    val zone: ArchitecturalZoneEntity,
+    val diagnosedClarity: Float,   // 0.15f .. 0.98f (Computed from Tab 1 spheres)
+    val diagnosedPressure: Float,  // 0.08f .. 0.95f (Computed from Tab 1 spheres)
+    val influencingConcepts: List<String>,
+    val empiricalInterpretation: String
+)
+
 data class NoesisUiState(
     val currentTab: NoesisTab = NoesisTab.FIELD,
     val showHelpModal: Boolean = false,
+    val openedJournalEntry: JournalEntryEntity? = null,
     val preferences: UserPreferencesState = UserPreferencesState(),
     val strings: StringsCatalog = AppLocalizer.getCatalog(AppLanguage.SYSTEM),
     val particles: List<ConceptParticleEntity> = emptyList(),
     val selectedParticleId: Long? = null,
-    val zones: List<ArchitecturalZoneEntity> = emptyList(),
+    val diagnosedZones: List<DiagnosedZoneState> = emptyList(),
     val selectedZoneId: String? = "zone_time",
     val logs: List<SimulationLogEntity> = emptyList(),
+    val journalEntries: List<JournalEntryEntity> = emptyList(),
     val providers: List<AiProviderEntity> = emptyList(),
+    val currentDraftPrompt: String = "",
     val isSimulating: Boolean = false,
     val simulationProgressText: String = "",
     val latestGrounding: GroundingBundle? = null,
@@ -56,24 +71,26 @@ data class NoesisUiState(
     val statusBannerMessage: String? = null,
     val phaseCoherence: Float = 0.78f,
     val entropyIndex: Float = 0.34f,
-    val meanFrequencyHz: Float = 432f,
-    val meanValence: Float = 0.50f
+    val meanFrequencyHz: Float = 320f,
+    val meanHeaviness: Float = 0.40f
 )
 
 class NoesisViewModel(application: Application) : AndroidViewModel(application) {
     private val database = NoesisDatabase.getInstance(application)
     private val repository = NoesisRepository(application, database.noesisDao())
     private val networkService = GroundingAndAiService()
-    val soundEngine = MysticSoundEngine()
+    val soundEngine = MysticSoundEngine(application.applicationContext)
 
     private val _currentTab = MutableStateFlow(NoesisTab.FIELD)
     private val _showHelpModal = MutableStateFlow(false)
+    private val _openedJournalEntry = MutableStateFlow<JournalEntryEntity?>(null)
     private val _selectedParticleId = MutableStateFlow<Long?>(null)
     private val _selectedZoneId = MutableStateFlow<String?>("zone_time")
+    private val _currentDraftPrompt = MutableStateFlow("")
     private val _isSimulating = MutableStateFlow(false)
     private val _simulationProgressText = MutableStateFlow("")
     private val _latestGrounding = MutableStateFlow<GroundingBundle?>(null)
-    private val _isVerifyingProvider = MutableStateFlow<Boolean>(false)
+    private val _isVerifyingProvider = MutableStateFlow(false)
     private val _lastVerificationReport = MutableStateFlow<ProviderVerificationReport?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
 
@@ -85,9 +102,9 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         repository.particlesFlow,
         repository.zonesFlow,
         repository.logsFlow,
-        repository.providersFlow
-    ) { prefs, particles, zones, logs, providers ->
-        Quint(prefs, particles, zones, logs, providers)
+        combine(repository.providersFlow, repository.journalEntriesFlow) { p, j -> p to j }
+    ) { prefs, particles, zones, logs, provAndJournal ->
+        Quint(prefs, particles, zones, logs, provAndJournal)
     }
 
     private val transientFlow = combine(
@@ -102,53 +119,72 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         Quint(tab, selPart, selZone, sim, extra)
     }
 
-    val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow, _simulationProgressText) { core, trans, progText ->
+    private val extraUiFlow = combine(
+        _simulationProgressText,
+        _openedJournalEntry,
+        _currentDraftPrompt
+    ) { prog, journal, draft ->
+        Triple(prog, journal, draft)
+    }
+
+    val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow, extraUiFlow) { core, trans, extraUi ->
         val prefs = core.first
-        val particles = core.second
-        val zones = core.third
+        val rawParticles = core.second
+        // Enforce Title Case on all particles
+        val particles = rawParticles.map { it.copy(name = formatConceptTitleCase(it.name)) }
+        val baseZones = core.third
         val logs = core.fourth
-        val providers = core.fifth
+        val providers = core.fifth.first
+        val journalEntries = core.fifth.second
 
         val strings = AppLocalizer.getCatalog(prefs.language)
-        val meanFreq = if (particles.isNotEmpty()) {
-            particles.map { it.frequencyHz }.average().toFloat()
-        } else 432f
 
-        val avgCharge = if (particles.isNotEmpty()) {
-            particles.map { it.charge }.average().toFloat()
-        } else 0.3f
-
-        val normalizedValence = ((avgCharge + 1f) / 2f).coerceIn(0f, 1f)
-
-        val chargeVariance = if (particles.size > 1) {
-            particles.map { abs(it.charge - avgCharge) }.average().toFloat()
-        } else 0.25f
-
-        val entropy = (chargeVariance * 0.6f + prefs.bioArousal * 0.4f).coerceIn(0.08f, 0.96f)
-        val coherence = (1.0f - entropy * 0.65f + prefs.bioFocus * 0.25f).coerceIn(0.12f, 0.99f)
-
-        soundEngine.setSoundEnabled(prefs.soundEnabled)
-        soundEngine.setBinauralEnabled(prefs.binauralEnabled)
-        soundEngine.updateEmotionalFieldAcoustics(
-            meanFrequencyHz = meanFreq,
-            arousal = prefs.bioArousal,
-            valence = (normalizedValence * 0.6f + prefs.bioValence * 0.4f).coerceIn(0f, 1f),
-            coherence = coherence
+        // Convert particles to acoustic nodes and update modular synthesizer in real time
+        val acousticNodes = particles.map { p ->
+            SphereAcousticNode(
+                id = p.id,
+                name = p.name,
+                importanceMass = p.mass,
+                weightHeaviness = p.charge.coerceIn(0f, 1f),
+                posX = p.posX,
+                posY = p.posY
+            )
+        }
+        soundEngine.updateModularFieldState(
+            nodes = acousticNodes,
+            arousal = prefs.bioArousal
         )
+
+        val meanFreq = if (acousticNodes.isNotEmpty()) {
+            acousticNodes.map { it.computeBaseFrequencyHz() }.average().toFloat()
+        } else 320f
+
+        val avgHeaviness = if (particles.isNotEmpty()) {
+            particles.map { it.charge.coerceIn(0f, 1f) }.average().toFloat()
+        } else 0.35f
+
+        val entropy = (avgHeaviness * 0.65f + prefs.bioArousal * 0.35f).coerceIn(0.08f, 0.96f)
+        val coherence = (1.0f - avgHeaviness * 0.55f + prefs.bioFocus * 0.20f).coerceIn(0.18f, 0.98f)
+
+        // Diagnose Tab 2 Architectural Spaces automatically from Tab 1 spheres (Item 8)
+        val diagnosedZones = diagnoseArchitecturalSpacesFromField(baseZones, particles, strings.languageCode)
 
         NoesisUiState(
             currentTab = trans.first,
             showHelpModal = trans.fifth.first,
+            openedJournalEntry = extraUi.second,
             preferences = prefs,
             strings = strings,
             particles = particles,
             selectedParticleId = trans.second ?: particles.firstOrNull()?.id,
-            zones = zones,
-            selectedZoneId = trans.third ?: zones.firstOrNull()?.zoneId,
+            diagnosedZones = diagnosedZones,
+            selectedZoneId = trans.third ?: diagnosedZones.firstOrNull()?.zone?.zoneId,
             logs = logs,
+            journalEntries = journalEntries,
             providers = providers,
+            currentDraftPrompt = extraUi.third,
             isSimulating = trans.fourth,
-            simulationProgressText = progText,
+            simulationProgressText = extraUi.first,
             latestGrounding = _latestGrounding.value,
             isVerifyingProvider = trans.fifth.second,
             lastVerificationReport = trans.fifth.third,
@@ -156,7 +192,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             phaseCoherence = coherence,
             entropyIndex = entropy,
             meanFrequencyHz = meanFreq,
-            meanValence = normalizedValence
+            meanHeaviness = avgHeaviness
         )
     }.stateIn(
         scope = viewModelScope,
@@ -167,26 +203,133 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     init {
         viewModelScope.launch {
             repository.seedInitialDataIfEmpty()
-            soundEngine.startAmbientDroneIfNeeded()
+            soundEngine.startAmbientSynthesizerIfNeeded()
         }
+    }
+
+    /**
+     * Automatically calculates the Clarity/Openness and Pressure/Rigidity of each mental space
+     * in Tab 2 based on the positions, importance (mass), and sensation heaviness (charge)
+     * of the spheres in Tab 1, plus generates a contextual empirical interpretation (Item 8).
+     */
+    private fun diagnoseArchitecturalSpacesFromField(
+        zones: List<ArchitecturalZoneEntity>,
+        particles: List<ConceptParticleEntity>,
+        langCode: String
+    ): List<DiagnosedZoneState> {
+        if (particles.isEmpty()) {
+            return zones.map { z ->
+                DiagnosedZoneState(
+                    zone = z,
+                    diagnosedClarity = z.luminosity,
+                    diagnosedPressure = z.tensionIndex,
+                    influencingConcepts = emptyList(),
+                    empiricalInterpretation = z.architecturalDescription
+                )
+            }
+        }
+
+        return zones.map { zone ->
+            // Calculate spatial & semantic affinity between each Tab 1 sphere and this mental room
+            val rankedParticles = particles.map { p ->
+                val dist = hypot(p.posX - zone.mapX, p.posY - zone.mapY).coerceAtLeast(0.05f)
+                val spatialAffinity = (1.1f - dist).coerceIn(0.15f, 1.0f)
+                val archetypeBoost = if (matchesZoneArchetype(zone.zoneId, p.archetypeKey, p.name)) 1.55f else 1.0f
+                val weightInfluence = spatialAffinity * archetypeBoost * (p.mass / 1.5f)
+                Triple(p, dist, weightInfluence)
+            }.sortedByDescending { it.third }
+
+            val topInfluencers = rankedParticles.take(2).map { it.first }
+            val topNames = topInfluencers.map { formatConceptTitleCase(it.name) }
+
+            val weightedHeaviness = if (topInfluencers.isNotEmpty()) {
+                topInfluencers.map { it.charge.coerceIn(0f, 1f) }.average().toFloat()
+            } else 0.4f
+
+            val weightedImportance = if (topInfluencers.isNotEmpty()) {
+                topInfluencers.map { ((it.mass - 0.4f) / 2.1f).coerceIn(0f, 1f) }.average().toFloat()
+            } else 0.5f
+
+            // Pressure is driven by the heaviness and high importance of nearby/resonant spheres
+            val diagnosedPressure = (weightedHeaviness * 0.68f + weightedImportance * 0.25f).coerceIn(0.10f, 0.94f)
+            // Clarity/Openness is high when spheres are light (low charge) and harmoniously spaced
+            val diagnosedClarity = ((1.0f - weightedHeaviness * 0.62f) + (1.0f - diagnosedPressure) * 0.28f).coerceIn(0.18f, 0.96f)
+
+            val empiricalText = buildEmpiricalRoomDiagnosis(
+                zone = zone,
+                clarityPct = (diagnosedClarity * 100).toInt(),
+                pressurePct = (diagnosedPressure * 100).toInt(),
+                influencers = topNames,
+                langCode = langCode
+            )
+
+            DiagnosedZoneState(
+                zone = zone.copy(luminosity = diagnosedClarity, tensionIndex = diagnosedPressure),
+                diagnosedClarity = diagnosedClarity,
+                diagnosedPressure = diagnosedPressure,
+                influencingConcepts = topNames,
+                empiricalInterpretation = empiricalText
+            )
+        }
+    }
+
+    private fun matchesZoneArchetype(zoneId: String, archetypeKey: String, name: String): Boolean {
+        val lower = name.lowercase()
+        return when (zoneId) {
+            "zone_fear" -> archetypeKey == "FEAR" || lower.contains("medo") || lower.contains("dúvida")
+            "zone_desire" -> archetypeKey == "DESIRE" || lower.contains("desejo") || lower.contains("vontade")
+            "zone_time" -> archetypeKey == "TIME" || lower.contains("tempo") || lower.contains("saudade")
+            "zone_identity" -> archetypeKey == "IDENTITY" || lower.contains("identidade") || lower.contains("eu")
+            "zone_justice" -> archetypeKey == "JUSTICE" || lower.contains("justiça") || lower.contains("equilíbrio")
+            "zone_power" -> archetypeKey == "POWER" || archetypeKey == "DOMINATION" || archetypeKey == "ANGER" || lower.contains("foco") || lower.contains("força")
+            "zone_emptiness" -> archetypeKey == "EMPTINESS" || lower.contains("liberdade") || lower.contains("silêncio")
+            else -> false
+        }
+    }
+
+    private fun buildEmpiricalRoomDiagnosis(
+        zone: ArchitecturalZoneEntity,
+        clarityPct: Int,
+        pressurePct: Int,
+        influencers: List<String>,
+        langCode: String
+    ): String {
+        val conceptsStr = if (influencers.isNotEmpty()) influencers.joinToString(" e ") else "suas esferas atuais"
+        val stateDesc = when {
+            pressurePct >= 65 -> "sob alta pressão e exigência ($pressurePct%)"
+            pressurePct <= 35 -> "leve, arejado e descomprimido ($pressurePct% de pressão)"
+            else -> "em equilíbrio dinâmico ($pressurePct% de pressão e $clarityPct% de clareza)"
+        }
+
+        if (langCode.lowercase() != "pt") {
+            return "Empirically, **$conceptsStr** in Tab 1 are directly shaping **${zone.customTitle}**, leaving this mental space at **$clarityPct% clarity** and **$pressurePct% pressure**. In your current psychic structure, this means this area is acting as a primary resonator for how you process $conceptsStr today."
+        }
+
+        return "Pela posição e intensidade de **$conceptsStr** na Aba 1, o ambiente **${zone.customTitle}** encontra-se hoje **$stateDesc**, com **$clarityPct% de abertura perceptual**. Empiricamente na sua estrutura psíquica atual, isso indica que a forma como você está vivenciando **$conceptsStr** repercute diretamente nesta área (${zone.conceptDomain.lowercase()}), ${if (pressurePct >= 60) "pedindo mais respiro e menos autocobrança" else "funcionando como um ponto de apoio seguro e criativo para o seu dia"}."
     }
 
     fun toggleHelpModal(show: Boolean) {
         _showHelpModal.value = show
     }
 
+    fun openJournalEntry(entry: JournalEntryEntity?) {
+        _openedJournalEntry.value = entry
+    }
+
+    fun updateDraftPrompt(text: String) {
+        _currentDraftPrompt.value = text
+    }
+
     fun selectTab(tab: NoesisTab) {
         _currentTab.value = tab
-        soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.6f, durationMs = 240)
     }
 
     fun selectParticle(particle: ConceptParticleEntity) {
         _selectedParticleId.value = particle.id
         recordImplicitKineticTouch(dragSpeedPx = 10f)
-        soundEngine.triggerTouchHarmonic(
-            frequencyHz = particle.frequencyHz,
-            valence = particle.charge,
-            durationMs = 380
+        soundEngine.triggerSphereTouchChord(
+            importanceMass = particle.mass,
+            weightHeaviness = particle.charge
         )
     }
 
@@ -195,6 +338,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             repository.updateParticle(
                 particle.copy(
+                    name = formatConceptTitleCase(particle.name),
                     posX = newX.coerceIn(0.08f, 0.92f),
                     posY = newY.coerceIn(0.10f, 0.90f)
                 )
@@ -202,28 +346,47 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun updateParticleParameters(particle: ConceptParticleEntity, mass: Float, charge: Float, freqHz: Float) {
-        soundEngine.triggerTouchHarmonic(frequencyHz = freqHz, valence = charge, durationMs = 240)
+    /**
+     * Updates Importance (mass: 0.4..2.5 -> Hue Blue to Red) and Sensation Heaviness
+     * (charge: 0.0..1.0 -> Light to Heavy Saturation), automatically recalculating pitch & sound!
+     */
+    fun updateParticleImportanceAndHeaviness(
+        particle: ConceptParticleEntity,
+        importanceMass: Float,
+        heavinessCharge: Float
+    ) {
+        val clampedMass = importanceMass.coerceIn(0.4f, 2.5f)
+        val clampedCharge = heavinessCharge.coerceIn(0.0f, 1.0f)
+        val normImp = ((clampedMass - 0.4f) / 2.1f).coerceIn(0f, 1f)
+        val autoFreqHz = (510f - (normImp * 200f) - (clampedCharge * 165f)).coerceIn(115f, 528f)
+
+        soundEngine.triggerSphereTouchChord(
+            importanceMass = clampedMass,
+            weightHeaviness = clampedCharge,
+            durationMs = 240
+        )
+
         viewModelScope.launch {
             repository.updateParticle(
                 particle.copy(
-                    mass = mass.coerceIn(0.3f, 2.5f),
-                    charge = charge.coerceIn(-1f, 1f),
-                    frequencyHz = freqHz.coerceIn(136f, 852f)
+                    name = formatConceptTitleCase(particle.name),
+                    mass = clampedMass,
+                    charge = clampedCharge,
+                    frequencyHz = autoFreqHz
                 )
             )
         }
     }
 
-    fun injectConceptParticle(name: String, archetypeKey: String = "CUSTOM") {
-        val cleanName = name.trim()
+    fun injectConceptParticle(rawName: String, archetypeKey: String = "CUSTOM") {
+        val cleanName = formatConceptTitleCase(rawName)
         if (cleanName.isBlank()) return
 
         val preset = resolveArchetypeSpec(cleanName, archetypeKey)
-        soundEngine.triggerTouchHarmonic(
-            frequencyHz = preset.frequencyHz,
-            valence = preset.charge,
-            durationMs = 450
+        soundEngine.triggerSphereTouchChord(
+            importanceMass = preset.mass,
+            weightHeaviness = preset.charge,
+            durationMs = 420
         )
 
         viewModelScope.launch {
@@ -246,41 +409,25 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun removeParticle(id: Long) {
-        soundEngine.triggerTouchHarmonic(frequencyHz = 220f, valence = -0.2f, durationMs = 260)
         viewModelScope.launch {
             repository.deleteParticle(id)
         }
     }
 
     fun resetFieldParticles() {
-        soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.8f, durationMs = 500)
         viewModelScope.launch {
             repository.resetParticlesToDefault()
         }
     }
 
-    fun selectArchitecturalZone(zone: ArchitecturalZoneEntity) {
-        _selectedZoneId.value = zone.zoneId
-        soundEngine.triggerTouchHarmonic(
-            frequencyHz = zone.resonantHz,
-            valence = zone.luminosity - zone.tensionIndex,
-            durationMs = 420
-        )
-    }
-
-    fun transmuteArchitecturalZone(zone: ArchitecturalZoneEntity, newLuminosity: Float, newTension: Float) {
-        soundEngine.triggerTouchHarmonic(
-            frequencyHz = zone.resonantHz * (0.9f + newLuminosity * 0.25f),
-            valence = newLuminosity - newTension,
-            durationMs = 350
-        )
-        viewModelScope.launch {
-            repository.updateZone(
-                zone.copy(
-                    luminosity = newLuminosity.coerceIn(0.1f, 1.0f),
-                    tensionIndex = newTension.coerceIn(0.05f, 0.95f),
-                    lastVisitedAt = System.currentTimeMillis()
-                )
+    fun selectArchitecturalZone(zoneId: String) {
+        _selectedZoneId.value = zoneId
+        val diagnosed = uiState.value.diagnosedZones.find { it.zone.zoneId == zoneId }
+        if (diagnosed != null) {
+            soundEngine.triggerSphereTouchChord(
+                importanceMass = 0.6f + diagnosed.diagnosedClarity * 1.4f,
+                weightHeaviness = diagnosed.diagnosedPressure,
+                durationMs = 380
             )
         }
     }
@@ -320,8 +467,11 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         val state = uiState.value
         if (state.isSimulating) return
 
-        val conceptNames = state.particles.map { it.name }
-        val promptToUse = customPrompt?.takeIf { it.isNotBlank() } ?: when (state.strings.languageCode) {
+        val conceptNames = state.particles.map { formatConceptTitleCase(it.name) }
+        val promptCandidate = customPrompt?.trim()?.takeIf { it.isNotBlank() }
+            ?: state.currentDraftPrompt.trim().takeIf { it.isNotBlank() }
+
+        val promptToUse = promptCandidate ?: when (state.strings.languageCode) {
             "en" -> "What does the combination of ${conceptNames.joinToString(", ")} reveal about my current state?"
             "es" -> "¿Qué revela la combinación de ${conceptNames.joinToString(", ")} sobre mi momento actual?"
             "fr" -> "Que révèle la combinaison de ${conceptNames.joinToString(", ")} sur mon état actuel ?"
@@ -330,13 +480,18 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         _currentTab.value = NoesisTab.ORACLE
         _isSimulating.value = true
-        _simulationProgressText.value = "Estamos desenhando sua experiência..."
-        soundEngine.triggerTouchHarmonic(frequencyHz = 639f, valence = 0.75f, durationMs = 600)
+        _simulationProgressText.value = state.strings.synthesizingMessage
 
         viewModelScope.launch {
             try {
                 val particlesSummary = state.particles.joinToString("; ") {
-                    "${it.name} (Tamanho=${"%.1f".format(it.mass)}, Sensação=${if (it.charge >= 0) "Leve/Aberta" else "Tensa/Pesada"}, Tom=${it.frequencyHz.toInt()}Hz)"
+                    val tempDesc = when {
+                        it.mass > 1.8f -> "Cor Quente/Alta Importância"
+                        it.mass < 1.0f -> "Cor Fria/Suave Importância"
+                        else -> "Cor Intermediária/Média Importância"
+                    }
+                    val weightDesc = if (it.charge >= 0.55f) "Sensação Pesada (${(it.charge * 100).toInt()}%)" else "Sensação Leve (${(it.charge * 100).toInt()}%)"
+                    "${formatConceptTitleCase(it.name)} ($tempDesc, $weightDesc)"
                 }
 
                 val activeProvider = state.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
@@ -383,20 +538,85 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Saves an immutable snapshot of the current gravitational map, architectural diagnosis,
+     * user prompt notes, and latest reflection into the "Diário de Bordo" (Item 16).
+     */
+    fun saveCurrentStateToJournal() {
+        val state = uiState.value
+        viewModelScope.launch {
+            val particlesJson = JSONArray().apply {
+                state.particles.forEach { p ->
+                    put(JSONObject().apply {
+                        put("name", formatConceptTitleCase(p.name))
+                        put("mass", p.mass.toDouble())
+                        put("charge", p.charge.toDouble())
+                        put("posX", p.posX.toDouble())
+                        put("posY", p.posY.toDouble())
+                    })
+                }
+            }.toString()
+
+            val zonesJson = JSONArray().apply {
+                state.diagnosedZones.forEach { dz ->
+                    put(JSONObject().apply {
+                        put("customTitle", dz.zone.customTitle)
+                        put("conceptDomain", dz.zone.conceptDomain)
+                        put("geometryType", dz.zone.geometryType)
+                        put("mapX", dz.zone.mapX.toDouble())
+                        put("mapY", dz.zone.mapY.toDouble())
+                        put("clarity", dz.diagnosedClarity.toDouble())
+                        put("pressure", dz.diagnosedPressure.toDouble())
+                        put("empiricalInterpretation", dz.empiricalInterpretation)
+                    })
+                }
+            }.toString()
+
+            val latestLog = state.logs.firstOrNull()
+            val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
+                .ifBlank { "Estado Mental" }
+
+            val userNotes = state.currentDraftPrompt.takeIf { it.isNotBlank() }
+                ?: latestLog?.userPrompt
+                ?: ""
+
+            val narrative = latestLog?.narrativeResponse ?: "Snapshot salvo diretamente do campo gravitacional."
+            val somatic = latestLog?.somaticSuggestion ?: ""
+
+            val newId = repository.addJournalEntry(
+                JournalEntryEntity(
+                    timestamp = System.currentTimeMillis(),
+                    titleSummary = conceptTitleSummary,
+                    particlesSnapshotJson = particlesJson,
+                    zonesSnapshotJson = zonesJson,
+                    userNotesPrompt = userNotes,
+                    narrativeText = narrative,
+                    somaticExerciseText = somatic,
+                    bioArousal = state.preferences.bioArousal,
+                    bioValence = state.preferences.bioValence,
+                    bioFocus = state.preferences.bioFocus
+                )
+            )
+
+            _statusBannerMessage.value = state.strings.journalSavedToast
+        }
+    }
+
+    fun deleteJournalEntry(entryId: Long) {
+        viewModelScope.launch {
+            repository.deleteJournalEntry(entryId)
+            if (_openedJournalEntry.value?.id == entryId) {
+                _openedJournalEntry.value = null
+            }
+        }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { repository.setThemeMode(mode) }
     }
 
     fun setLanguage(language: AppLanguage) {
         viewModelScope.launch { repository.setLanguage(language) }
-    }
-
-    fun setSoundEnabled(enabled: Boolean) {
-        viewModelScope.launch { repository.setSoundEnabled(enabled) }
-    }
-
-    fun setBinauralEnabled(enabled: Boolean) {
-        viewModelScope.launch { repository.setBinauralEnabled(enabled) }
     }
 
     fun verifyAndSaveByokProvider(
@@ -437,9 +657,6 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                         lastVerifiedAt = System.currentTimeMillis()
                     )
                 )
-                if (verifiedModels.isNotEmpty()) {
-                    soundEngine.triggerTouchHarmonic(frequencyHz = 639f, valence = 0.9f, durationMs = 450)
-                }
             } finally {
                 _isVerifyingProvider.value = false
             }
@@ -447,7 +664,6 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun activateProviderModel(providerId: Long, modelId: String) {
-        soundEngine.triggerTouchHarmonic(frequencyHz = 528f, valence = 0.8f, durationMs = 300)
         viewModelScope.launch {
             repository.activateProviderModel(providerId, modelId)
         }
@@ -487,13 +703,13 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         super.onCleared()
-        soundEngine.stopAmbientDrone()
+        soundEngine.releaseEngine()
     }
 
     private data class ArchetypeSpec(
         val archetypeKey: String,
         val mass: Float,
-        val charge: Float,
+        val charge: Float, // 0.0 (Leve) .. 1.0 (Pesada)
         val frequencyHz: Float,
         val spin: Float,
         val colorHex: Long,
@@ -504,34 +720,37 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         val lower = name.lowercase()
         return when {
             keyHint == "FEAR" || lower.contains("medo") || lower.contains("fear") || lower.contains("dúvida") || lower.contains("ansiedade") ->
-                ArchetypeSpec("FEAR", 1.40f, -0.70f, 310f, -1.2f, 0xFF7A6F9B, "Sinal de cautela e proteção que pede segurança antes do próximo passo.")
+                ArchetypeSpec("FEAR", 1.35f, 0.78f, 210f, -1.2f, 0xFF7A6F9B, "Sinal de cautela e proteção que pede segurança antes do próximo passo.")
             keyHint == "DESIRE" || lower.contains("desejo") || lower.contains("desire") || lower.contains("paixão") || lower.contains("vontade") ->
-                ArchetypeSpec("DESIRE", 1.65f, 0.85f, 432f, 1.2f, 0xFFD97757, "Energia de atração, entusiasmo e vontade de criar ou viver algo novo.")
-            keyHint == "TIME" || lower.contains("tempo") || lower.contains("time") || lower.contains("futuro") || lower.contains("passado") ->
-                ArchetypeSpec("TIME", 1.85f, 0.20f, 528f, 0.6f, 0xFFD4AF59, "A relação com o ritmo das coisas, a memória e a paciência com os processos.")
+                ArchetypeSpec("DESIRE", 2.05f, 0.42f, 285f, 1.2f, 0xFFD97757, "Energia de atração, entusiasmo e vontade de criar ou viver algo novo.")
+            keyHint == "TIME" || lower.contains("tempo") || lower.contains("time") || lower.contains("saudade") || lower.contains("futuro") ->
+                ArchetypeSpec("TIME", 1.65f, 0.38f, 340f, 0.6f, 0xFFD4AF59, "A relação com o ritmo das coisas, a memória e a paciência com os processos.")
             keyHint == "IDENTITY" || lower.contains("identidade") || lower.contains("identity") || lower.contains("eu") ->
-                ArchetypeSpec("IDENTITY", 1.50f, 0.40f, 396f, 0.9f, 0xFF5A8F99, "Aquilo que define seus valores, seus limites e sua história atual.")
+                ArchetypeSpec("IDENTITY", 1.50f, 0.35f, 360f, 0.9f, 0xFF5A8F99, "Aquilo que define seus valores, seus limites e sua história atual.")
             keyHint == "JUSTICE" || lower.contains("justiça") || lower.contains("justice") || lower.contains("equilíbrio") ->
-                ArchetypeSpec("JUSTICE", 1.65f, 0.70f, 639f, 0.3f, 0xFF7D9471, "Busca por harmonia, reciprocidade e escolhas justas no seu caminho.")
+                ArchetypeSpec("JUSTICE", 1.45f, 0.25f, 396f, 0.3f, 0xFF7D9471, "Busca por harmonia, reciprocidade e escolhas justas no seu caminho.")
             keyHint == "DOMINATION" || lower.contains("dominação") || lower.contains("controle") || lower.contains("cobrança") ->
-                ArchetypeSpec("DOMINATION", 1.80f, -0.60f, 220f, -1.1f, 0xFFB84A39, "Tentativa de controlar tudo pela força ou excesso de autocobrança.")
-            keyHint == "POWER" || lower.contains("poder") || lower.contains("força") || lower.contains("coragem") ->
-                ArchetypeSpec("POWER", 1.75f, 0.65f, 480f, 1.3f, 0xFFC98A4B, "Capacidade real de agir, realizar e transformar ideias em realidade.")
+                ArchetypeSpec("DOMINATION", 2.10f, 0.85f, 165f, -1.1f, 0xFFB84A39, "Tentativa de controlar tudo pela força ou excesso de autocobrança.")
+            keyHint == "POWER" || lower.contains("poder") || lower.contains("força") || lower.contains("foco") ->
+                ArchetypeSpec("POWER", 1.85f, 0.50f, 290f, 1.3f, 0xFFC98A4B, "Capacidade real de agir, concentrar energia e transformar ideias em realidade.")
             keyHint == "ANGER" || lower.contains("raiva") || lower.contains("irritação") || lower.contains("fúria") ->
-                ArchetypeSpec("ANGER", 1.55f, -0.50f, 580f, 1.6f, 0xFFD14949, "Energia intensa que surge quando um limite importante foi ultrapassado.")
-            keyHint == "EMPTINESS" || lower.contains("silêncio") || lower.contains("calma") || lower.contains("paz") || lower.contains("vazio") ->
-                ArchetypeSpec("EMPTINESS", 0.70f, 0.95f, 741f, 0.1f, 0xFF8AA37B, "Espaço aberto de calma e alívio que permite enxergar tudo com clareza.")
+                ArchetypeSpec("ANGER", 2.25f, 0.88f, 150f, 1.6f, 0xFFD14949, "Energia intensa que surge quando um limite importante foi ultrapassado.")
+            keyHint == "EMPTINESS" || lower.contains("silêncio") || lower.contains("calma") || lower.contains("liberdade") ->
+                ArchetypeSpec("EMPTINESS", 0.75f, 0.15f, 460f, 0.1f, 0xFF8AA37B, "Espaço aberto de leveza e alívio que permite enxergar tudo com clareza.")
             else -> {
                 val hash = abs(name.hashCode())
-                val palette = listOf(0xFFD97757, 0xFFD4AF59, 0xFF5A8F99, 0xFF7D9471, 0xFF7A6F9B, 0xFFC98A4B)
+                val mass = (0.65f + (hash % 165) / 100f).coerceIn(0.4f, 2.5f)
+                val charge = ((hash % 75) + 15) / 100f // 0.15f .. 0.90f
+                val normImp = ((mass - 0.4f) / 2.1f).coerceIn(0f, 1f)
+                val freq = (510f - (normImp * 200f) - (charge * 165f)).coerceIn(115f, 528f)
                 ArchetypeSpec(
                     archetypeKey = "CUSTOM",
-                    mass = 1.1f + (hash % 100) / 100f,
-                    charge = ((hash % 160) - 60) / 100f,
-                    frequencyHz = 280f + (hash % 420).toFloat(),
+                    mass = mass,
+                    charge = charge,
+                    frequencyHz = freq,
                     spin = ((hash % 200) - 100) / 100f,
-                    colorHex = palette[hash % palette.size],
-                    note = "Conceito ou sensação livre que faz parte do seu momento atual."
+                    colorHex = 0xFFD97757,
+                    note = "Conceito ou sensação livre que compõe o seu estado mental hoje."
                 )
             }
         }

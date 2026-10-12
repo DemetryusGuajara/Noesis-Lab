@@ -4,7 +4,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -20,7 +23,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -34,10 +41,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,12 +60,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.example.data.JournalEntryEntity
 import com.example.i18n.AppLanguage
 import com.example.ui.theme.ThemeMode
+import com.example.ui.theme.computeSynestheticSphereColor
+import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
+import org.json.JSONArray
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.hypot
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -63,6 +92,9 @@ fun SystemsAndByokScreen(
     uiState: NoesisUiState,
     onSelectTheme: (ThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
+    onSaveCurrentStateToJournal: () -> Unit,
+    onOpenJournalEntry: (JournalEntryEntity?) -> Unit,
+    onDeleteJournalEntry: (Long) -> Unit,
     onVerifyAndSaveProvider: (String, String, String) -> Unit,
     onActivateProviderModel: (Long, String) -> Unit,
     onUseBuiltInEngine: () -> Unit,
@@ -74,6 +106,13 @@ fun SystemsAndByokScreen(
     var providerName by remember { mutableStateOf("") }
     var providerBaseUrl by remember { mutableStateOf("https://api.openai.com/v1") }
     var providerApiKey by remember { mutableStateOf("") }
+    var journalDropdownExpanded by remember { mutableStateOf(false) }
+
+    val isDark = when (uiState.preferences.themeMode) {
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -87,6 +126,17 @@ fun SystemsAndByokScreen(
         if (uri != null) onImportBackup(uri)
     }
 
+    // Full-Screen Article Viewer Modal for Saved Logbook Entries (Item 16)
+    uiState.openedJournalEntry?.let { entry ->
+        JournalArticleModal(
+            entry = entry,
+            strings = strings,
+            isDark = isDark,
+            onClose = { onOpenJournalEntry(null) },
+            onDelete = { onDeleteJournalEntry(entry.id) }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -94,7 +144,134 @@ fun SystemsAndByokScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag("systems_byok_screen")
     ) {
-        // Section 1: Anthropic Appearance (System / Light / Dark) & Multilingual Selector (i18n)
+        // Section 1: Diário de Bordo (Logbook State Snapshots & Dropdown Article Viewer - Item 16)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("journal_logbook_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Book,
+                        contentDescription = strings.journalSectionTitle,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = strings.journalSectionTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = strings.journalSectionSubtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = onSaveCurrentStateToJournal,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("save_state_to_journal_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BookmarkAdd,
+                        contentDescription = strings.saveCurrentStateToJournalButton,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(strings.saveCurrentStateToJournalButton)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (uiState.journalEntries.isEmpty()) {
+                    Text(
+                        text = strings.journalEmptyText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy 'às' HH:mm", Locale.getDefault()) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { journalDropdownExpanded = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("journal_dropdown_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${strings.journalDropdownLabel} (${uiState.journalEntries.size})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = journalDropdownExpanded,
+                            onDismissRequest = { journalDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.88f)
+                        ) {
+                            uiState.journalEntries.forEach { entry ->
+                                val formattedDate = dateFormat.format(Date(entry.timestamp))
+                                DropdownMenuItem(
+                                    text = {
+                                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                            Text(
+                                                text = formattedDate,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = entry.titleSummary,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        journalDropdownExpanded = false
+                                        onOpenJournalEntry(entry)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Section 2: Appearance & Multilingual Selector
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -179,7 +356,7 @@ fun SystemsAndByokScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Section 2: SQLite Local Persistence & Portable JSON Backup/Restore
+        // Section 3: SQLite Local Persistence & Portable JSON Backup/Restore
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -211,7 +388,7 @@ fun SystemsAndByokScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${strings.dbStatsLabel} ${uiState.particles.size} partículas · ${uiState.zones.size} câmaras · ${uiState.logs.size} simulações · ${uiState.providers.size} provedores",
+                    text = "${strings.dbStatsLabel} ${uiState.particles.size} esferas · ${uiState.journalEntries.size} artigos no diário · ${uiState.logs.size} leituras",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -262,7 +439,7 @@ fun SystemsAndByokScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Section 3: OpenAI-Compatible BYOK Multi-Provider Manager & Live Ping Model Verifier
+        // Section 4: OpenAI-Compatible BYOK Multi-Provider Manager
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -295,7 +472,6 @@ fun SystemsAndByokScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Quick Endpoint Presets
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -390,7 +566,6 @@ fun SystemsAndByokScreen(
                     }
                 }
 
-                // Live Verification & Ping Report Banner
                 AnimatedVisibility(visible = uiState.lastVerificationReport != null) {
                     uiState.lastVerificationReport?.let { report ->
                         Surface(
@@ -435,7 +610,6 @@ fun SystemsAndByokScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Option to use Built-in Phenomenological Engine
                 OutlinedButton(
                     onClick = onUseBuiltInEngine,
                     modifier = Modifier.fillMaxWidth(),
@@ -452,7 +626,6 @@ fun SystemsAndByokScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Saved Providers & Their Ping-Verified Responsive Models
                 uiState.providers.forEach { provider ->
                     val verifiedModels = provider.verifiedModelsCsv
                         .split(",")
@@ -537,3 +710,341 @@ fun SystemsAndByokScreen(
         }
     }
 }
+
+/**
+ * Full-Screen Editorial Article Viewer for a Saved Logbook Entry ("Diário de Bordo" - Item 16).
+ * Displays the date/time header, rendered gravitational map with colors & gradients,
+ * diagnosed mental rooms summary, user notes, and generated texts, plus a Delete button.
+ */
+@Composable
+private fun JournalArticleModal(
+    entry: JournalEntryEntity,
+    strings: com.example.i18n.StringsCatalog,
+    isDark: Boolean,
+    onClose: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("dd 'de' MMMM 'de' yyyy · HH:mm", Locale.getDefault()) }
+    val formattedDate = dateFormat.format(Date(entry.timestamp))
+    val textMeasurer = rememberTextMeasurer()
+
+    val parsedParticles = remember(entry.particlesSnapshotJson) {
+        runCatching {
+            val arr = JSONArray(entry.particlesSnapshotJson)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                SnapshotParticle(
+                    name = formatConceptTitleCase(o.optString("name", "Conceito")),
+                    mass = o.optDouble("mass", 1.2).toFloat(),
+                    charge = o.optDouble("charge", 0.4).toFloat(),
+                    posX = o.optDouble("posX", 0.5).toFloat(),
+                    posY = o.optDouble("posY", 0.5).toFloat()
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    val parsedZones = remember(entry.zonesSnapshotJson) {
+        runCatching {
+            val arr = JSONArray(entry.zonesSnapshotJson)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                SnapshotZone(
+                    customTitle = o.optString("customTitle", ""),
+                    conceptDomain = o.optString("conceptDomain", ""),
+                    clarity = o.optDouble("clarity", 0.7).toFloat(),
+                    pressure = o.optDouble("pressure", 0.4).toFloat(),
+                    empiricalInterpretation = o.optString("empiricalInterpretation", "")
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.background,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                // Article Top Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "DIÁRIO DE BORDO · REGISTRO DE ESTADO",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = entry.titleSummary,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            text = formattedDate,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.journalArticleCloseButton,
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 1. Snapshot of the Gravitational Map (Aba 1)
+                Text(
+                    text = "1. Fotografia do Campo de Emoções e Ideias",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val canvasBg = MaterialTheme.colorScheme.surface
+                val labelColor = MaterialTheme.colorScheme.onSurface
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = canvasBg),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val w = size.width
+                        val h = size.height
+
+                        // Gradient bridges
+                        for (i in parsedParticles.indices) {
+                            for (j in i + 1 until parsedParticles.size) {
+                                val p1 = parsedParticles[i]
+                                val p2 = parsedParticles[j]
+                                val o1 = Offset(p1.posX * w, p1.posY * h)
+                                val o2 = Offset(p2.posX * w, p2.posY * h)
+                                val dist = hypot(o2.x - o1.x, o2.y - o1.y)
+                                val maxDist = minOf(w, h) * 0.72f
+                                if (dist < maxDist) {
+                                    val c1 = computeSynestheticSphereColor(p1.mass, p1.charge, isDark)
+                                    val c2 = computeSynestheticSphereColor(p2.mass, p2.charge, isDark)
+                                    drawLine(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(c1.copy(alpha = 0.7f), c2.copy(alpha = 0.7f)),
+                                            start = o1,
+                                            end = o2
+                                        ),
+                                        start = o1,
+                                        end = o2,
+                                        strokeWidth = 2.5.dp.toPx()
+                                    )
+                                }
+                            }
+                        }
+
+                        // Spheres
+                        parsedParticles.forEach { p ->
+                            val pos = Offset(p.posX * w, p.posY * h)
+                            val c = computeSynestheticSphereColor(p.mass, p.charge, isDark)
+                            val r = (14f + p.mass * 5f).dp.toPx()
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(c.copy(alpha = 0.25f), Color.Transparent),
+                                    center = pos,
+                                    radius = r * 2.2f
+                                ),
+                                radius = r * 2.2f,
+                                center = pos
+                            )
+                            drawCircle(color = c, radius = r, center = pos)
+                            val layout = textMeasurer.measure(
+                                text = p.name,
+                                style = TextStyle(color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            )
+                            drawText(
+                                textLayoutResult = layout,
+                                topLeft = Offset(
+                                    x = (pos.x - layout.size.width / 2f).coerceIn(4f, w - layout.size.width - 4f),
+                                    y = (pos.y + r + 4.dp.toPx()).coerceIn(4f, h - layout.size.height - 4f)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 2. Snapshot of Diagnosed Mental Rooms (Aba 2)
+                if (parsedZones.isNotEmpty()) {
+                    Text(
+                        text = "2. Diagnóstico dos Espaços da Mente na Data",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    parsedZones.take(4).forEach { z ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = z.customTitle,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Clareza ${(z.clarity * 100).toInt()}% · Pressão ${(z.pressure * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { z.clarity },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(5.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 3. User Notes & Generated Reflection (Aba 3)
+                if (entry.userNotesPrompt.isNotBlank()) {
+                    Text(
+                        text = "3. Suas Anotações e Contexto",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "“${entry.userNotesPrompt}”",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
+                Text(
+                    text = "4. Leitura e Reflexão Sintetizada",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        FormattedMarkdownText(
+                            markdown = entry.narrativeText,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (entry.somaticExerciseText.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FormattedMarkdownText(
+                                markdown = entry.somaticExerciseText,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Bottom Actions: Delete Entry or Close
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("delete_journal_entry_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = strings.journalArticleDeleteButton,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = strings.journalArticleDeleteButton,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    Button(
+                        onClick = onClose,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(strings.journalArticleCloseButton)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class SnapshotParticle(
+    val name: String,
+    val mass: Float,
+    val charge: Float,
+    val posX: Float,
+    val posY: Float
+)
+
+private data class SnapshotZone(
+    val customTitle: String,
+    val conceptDomain: String,
+    val clarity: Float,
+    val pressure: Float,
+    val empiricalInterpretation: String
+)

@@ -1,10 +1,15 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,12 +54,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.screens.ArchitecturalMapScreen
@@ -72,6 +80,28 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: NoesisViewModel = viewModel()
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+
+            // Request POST_NOTIFICATIONS on Android 13+ so the Media Player notification can appear in the status bar
+            val notifPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                if (granted) {
+                    viewModel.soundEngine.updateMediaNotification()
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val hasPerm = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (!hasPerm) {
+                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
 
             NoesisTheme(themeMode = uiState.preferences.themeMode) {
                 NoesisAppShell(
@@ -141,7 +171,6 @@ fun NoesisAppShell(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            // Generous statusBarsPadding + extra top margin so it never collides with Android status bar
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -242,36 +271,33 @@ fun NoesisAppShell(
                     uiState = uiState,
                     onSelectParticle = viewModel::selectParticle,
                     onCommitParticlePosition = viewModel::commitParticlePosition,
-                    onUpdateParticleParams = viewModel::updateParticleParameters,
+                    onUpdateParticleImportanceAndHeaviness = viewModel::updateParticleImportanceAndHeaviness,
                     onInjectConcept = viewModel::injectConceptParticle,
                     onRemoveParticle = viewModel::removeParticle,
                     onResetParticles = viewModel::resetFieldParticles,
-                    onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) },
-                    onToggleSound = viewModel::setSoundEnabled,
-                    onToggleBinaural = viewModel::setBinauralEnabled
+                    onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) }
                 )
 
                 NoesisTab.ARCHITECTURE -> ArchitecturalMapScreen(
                     uiState = uiState,
-                    onSelectZone = viewModel::selectArchitecturalZone,
-                    onTransmuteZone = viewModel::transmuteArchitecturalZone,
-                    onMeditateInZone = { zone ->
-                        viewModel.collideAndRunSimulation(
-                            "Estou olhando para o espaço '${zone.customTitle}' (${zone.conceptDomain}) com clareza em ${(zone.luminosity * 100).toInt()}% e nível de pressão em ${(zone.tensionIndex * 100).toInt()}%."
-                        )
-                    }
+                    onSelectZone = viewModel::selectArchitecturalZone
                 )
 
                 NoesisTab.ORACLE -> NarrativeOracleScreen(
                     uiState = uiState,
                     onUpdateBiofeedback = viewModel::updateExplicitBiofeedback,
-                    onRunSimulation = { prompt -> viewModel.collideAndRunSimulation(prompt) }
+                    onUpdateDraftPrompt = viewModel::updateDraftPrompt,
+                    onRunSimulation = { prompt -> viewModel.collideAndRunSimulation(prompt) },
+                    onSaveStateToJournal = viewModel::saveCurrentStateToJournal
                 )
 
                 NoesisTab.SETTINGS -> SystemsAndByokScreen(
                     uiState = uiState,
                     onSelectTheme = viewModel::setThemeMode,
                     onSelectLanguage = viewModel::setLanguage,
+                    onSaveCurrentStateToJournal = viewModel::saveCurrentStateToJournal,
+                    onOpenJournalEntry = viewModel::openJournalEntry,
+                    onDeleteJournalEntry = viewModel::deleteJournalEntry,
                     onVerifyAndSaveProvider = viewModel::verifyAndSaveByokProvider,
                     onActivateProviderModel = viewModel::activateProviderModel,
                     onUseBuiltInEngine = viewModel::useBuiltInEngine,

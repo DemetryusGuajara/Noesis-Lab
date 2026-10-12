@@ -94,6 +94,25 @@ interface NoesisDao {
 
     @Query("DELETE FROM ai_providers")
     suspend fun clearAllProviders()
+
+    // Journal Entries ("Diário de Bordo")
+    @Query("SELECT * FROM journal_entries ORDER BY timestamp DESC")
+    fun observeJournalEntries(): Flow<List<JournalEntryEntity>>
+
+    @Query("SELECT * FROM journal_entries ORDER BY timestamp DESC")
+    suspend fun getAllJournalEntriesOnce(): List<JournalEntryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertJournalEntry(entry: JournalEntryEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertJournalEntries(entries: List<JournalEntryEntity>)
+
+    @Query("DELETE FROM journal_entries WHERE id = :id")
+    suspend fun deleteJournalEntry(id: Long)
+
+    @Query("DELETE FROM journal_entries")
+    suspend fun clearAllJournalEntries()
 }
 
 @Database(
@@ -101,9 +120,10 @@ interface NoesisDao {
         ConceptParticleEntity::class,
         ArchitecturalZoneEntity::class,
         SimulationLogEntity::class,
-        AiProviderEntity::class
+        AiProviderEntity::class,
+        JournalEntryEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class NoesisDatabase : RoomDatabase() {

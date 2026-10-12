@@ -7,13 +7,13 @@ import androidx.room.PrimaryKey
 data class ConceptParticleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val archetypeKey: String, // FEAR, DESIRE, TIME, IDENTITY, JUSTICE, DOMINATION, POWER, ANGER, EMPTINESS, CUSTOM
-    val mass: Float,          // 0.2f .. 2.5f (Semantic gravity)
-    val charge: Float,        // -1.0f .. 1.0f (Affective valence: contraction vs expansion)
-    val frequencyHz: Float,   // 110f .. 880f (Acoustic & neural oscillation frequency)
-    val spin: Float,          // -2.0f .. 2.0f (Phenomenological vorticity)
-    val posX: Float,          // Normalized 0.1f .. 0.9f
-    val posY: Float,          // Normalized 0.1f .. 0.9f
+    val archetypeKey: String,
+    val mass: Float,          // 0.4f .. 2.5f (Tamanho e Importância -> Defines Hue from Cold Blue to Warm Red)
+    val charge: Float,        // 0.0f .. 1.0f (Sensação: 0.0 = Leve, 1.0 = Pesada -> Defines Saturation & Acoustic Tension)
+    val frequencyHz: Float,   // Automatically computed from mass + charge + proximity
+    val spin: Float,
+    val posX: Float,          // Normalized 0.08f .. 0.92f
+    val posY: Float,          // Normalized 0.10f .. 0.90f
     val velX: Float = 0f,
     val velY: Float = 0f,
     val colorHex: Long,
@@ -27,13 +27,13 @@ data class ArchitecturalZoneEntity(
     val titleKey: String,
     val customTitle: String,
     val conceptDomain: String,
-    val geometryType: String, // LABYRINTH, ATRIUM, SPIRAL, TOWER, LATTICE, MONOLITH, VOID_GARDEN
-    val elevationLevel: Float, // -1.0f (Subterranean) to +1.0f (Zenith)
-    val luminosity: Float,     // 0.1f .. 1.0f
-    val tensionIndex: Float,   // 0.0f .. 1.0f
+    val geometryType: String,
+    val elevationLevel: Float,
+    val luminosity: Float,     // Dynamically diagnosed from Tab 1 spheres
+    val tensionIndex: Float,   // Dynamically diagnosed from Tab 1 spheres
     val resonantHz: Float,
-    val mapX: Float,           // Normalized 0.15f .. 0.85f
-    val mapY: Float,           // Normalized 0.15f .. 0.85f
+    val mapX: Float,
+    val mapY: Float,
     val connectedZonesCsv: String,
     val architecturalDescription: String,
     val lastVisitedAt: Long = System.currentTimeMillis()
@@ -62,8 +62,28 @@ data class AiProviderEntity(
     val name: String,
     val baseUrl: String,
     val apiKey: String,
-    val verifiedModelsCsv: String, // Only models that passed the live "oi"/"hi" ping with 200 OK
+    val verifiedModelsCsv: String,
     val selectedModel: String,
     val isActive: Boolean,
     val lastVerifiedAt: Long = 0L
+)
+
+/**
+ * Immutable Article Snapshot saved in the User's Logbook ("Diário de Bordo" - Item 16).
+ * Captures the gravitational field snapshot, architectural diagnosis snapshot, user notes,
+ * and generated reflections/exercises with date and time.
+ */
+@Entity(tableName = "journal_entries")
+data class JournalEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val titleSummary: String,
+    val particlesSnapshotJson: String,
+    val zonesSnapshotJson: String,
+    val userNotesPrompt: String,
+    val narrativeText: String,
+    val somaticExerciseText: String,
+    val bioArousal: Float,
+    val bioValence: Float,
+    val bioFocus: Float
 )
