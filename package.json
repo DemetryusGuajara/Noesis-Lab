@@ -1,0 +1,24 @@
+{
+  "name": "noesis-lab",
+  "version": "1.0.0",
+  "description": "> **Cartografia Fenomenológica da Consciência & Oráculo Perceptivo**",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DemetryusGuajara/Noesis-Lab.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/DemetryusGuajara/Noesis-Lab/issues"
+  },
+  "homepage": "https://github.com/DemetryusGuajara/Noesis-Lab#readme",
+  "dependencies": {
+    "sharp": "^0.35.5"
+  }
+}
