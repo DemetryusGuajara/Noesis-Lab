@@ -87,7 +87,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ai.LocalLlmEngine
 import com.example.ai.LlmPrefs
-import com.example.ai.OllamaEngine
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.JournalEntryEntity
@@ -466,20 +465,6 @@ fun SystemsAndByokScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             LocalLlmManagerCard(strings = strings)
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Section 3.6: Servidor Ollama (alternativa ao modelo no aparelho)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("ollama_server_card"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-        ) {
-            OllamaManagerCard()
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1510,142 +1495,6 @@ private fun LocalLlmManagerCard(
                     TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
                 }
             )
-        }
-    }
-}
-
-/**
- * Ollama server manager: host/model fields, connection test, model pull with progress.
- * O Ollama roda no PC/servidor — o app só o alcança na mesma rede.
- */
-@Composable
-private fun OllamaManagerCard() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var host by remember { mutableStateOf(LlmPrefs.getHost(context)) }
-    var model by remember { mutableStateOf(LlmPrefs.getModel(context)) }
-    var busy by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(-1f) }
-    var status by remember { mutableStateOf("") }
-    var lastPct by remember { mutableStateOf(-1) }
-
-    fun engine() = OllamaEngine(
-        host = host.ifBlank { LlmPrefs.DEFAULT_HOST },
-        model = model.ifBlank { LlmPrefs.DEFAULT_MODEL }
-    )
-
-    fun postProgress(p: Float, s: String) {
-        val pct = if (p >= 0f) (p * 100).toInt() else -1
-        if (pct != lastPct || status != s) {
-            lastPct = pct
-            progress = p
-            status = if (pct >= 0) "$s · $pct%" else s.ifBlank { status }
-        }
-    }
-
-    Column(modifier = Modifier.padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Hub,
-                contentDescription = "Servidor Ollama",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Servidor Ollama (alternativa)",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Rode `ollama serve` no PC (mesma Wi-Fi) e `ollama run qwen2.5:1.5b`. Modelos: qwen2.5:1.5b, qwen2.5-coder:0.5b.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it },
-            label = { Text("Endereço (ex: http://192.168.1.10:11434)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = model,
-            onValueChange = { model = it },
-            label = { Text("Modelo (ex: qwen2.5:1.5b)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        if (busy && progress >= 0f) {
-            LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-        } else if (busy) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(4.dp))
-        }
-        if (status.isNotBlank()) {
-            Text(
-                text = status,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedButton(
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        progress = -1f
-                        status = "testando..."
-                        LlmPrefs.setHost(context, host)
-                        LlmPrefs.setModel(context, model)
-                        val eng = engine()
-                        val ok = eng.checkReachable()
-                        status = if (ok) {
-                            val models = eng.listModels()
-                            if (models.isEmpty()) "Servidor OK, nenhum modelo instalado."
-                            else "Servidor OK: " + models.take(4).joinToString(", ")
-                        } else {
-                            "Inalcançável. Confira IP/porta e `ollama serve`."
-                        }
-                        busy = false
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("Testar") }
-            Button(
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        progress = -1f
-                        status = "iniciando..."
-                        lastPct = -1
-                        LlmPrefs.setHost(context, host)
-                        LlmPrefs.setModel(context, model)
-                        val res = engine().pullModel { p, s -> postProgress(p, s) }
-                        status = if (res.isSuccess) "Modelo pronto no servidor ✅"
-                        else "Falha: ${res.exceptionOrNull()?.message}"
-                        busy = false
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            ) { Text("Baixar no servidor") }
         }
     }
 }

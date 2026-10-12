@@ -10,15 +10,10 @@ import android.content.SharedPreferences
 object LlmPrefs {
     private const val FILE = "noesis_llm_prefs"
     const val KEY_STORAGE = "storage" // "internal" | "sd"
-    const val KEY_HOST = "ollama_host"
-    const val KEY_MODEL = "ollama_model"
     const val KEY_NOTICE = "model_notice_dismissed"
 
     const val STORAGE_INTERNAL = "internal"
     const val STORAGE_SD = "sd"
-
-    const val DEFAULT_HOST = "http://localhost:11434"
-    const val DEFAULT_MODEL = "qwen2.5:1.5b"
 
     // Slots do modelo no aparelho (.task MediaPipe, litert-community, Apache 2.0).
     // URLs verificadas: download anônimo liberado (gated:false).
@@ -57,20 +52,6 @@ object LlmPrefs {
 
     fun setStorage(context: Context, value: String) {
         prefs(context).edit().putString(KEY_STORAGE, value).apply()
-    }
-
-    fun getHost(context: Context): String =
-        prefs(context).getString(KEY_HOST, DEFAULT_HOST) ?: DEFAULT_HOST
-
-    fun setHost(context: Context, value: String) {
-        prefs(context).edit().putString(KEY_HOST, value.trim().ifBlank { DEFAULT_HOST }).apply()
-    }
-
-    fun getModel(context: Context): String =
-        prefs(context).getString(KEY_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
-
-    fun setModel(context: Context, value: String) {
-        prefs(context).edit().putString(KEY_MODEL, value.trim().ifBlank { DEFAULT_MODEL }).apply()
     }
 
     fun isNoticeDismissed(context: Context): Boolean =

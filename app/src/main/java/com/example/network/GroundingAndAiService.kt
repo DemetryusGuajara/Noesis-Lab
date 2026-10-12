@@ -3,7 +3,6 @@ package com.example.network
 import android.content.Context
 import android.util.Log
 import com.example.ai.LocalLlmEngine
-import com.example.ai.OllamaEngine
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -600,8 +599,6 @@ class GroundingAndAiService(private val context: Context) {
         activeBaseUrl: String?,
         activeApiKey: String?,
         activeModelId: String?,
-        ollamaHost: String? = null,
-        ollamaModel: String? = null,
         onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
@@ -700,7 +697,7 @@ class GroundingAndAiService(private val context: Context) {
             }
         }
 
-        // Tier 2A: modelo Qwen (.task) no aparelho via MediaPipe.
+        // Tier 2: modelo Qwen (.task) no aparelho via MediaPipe.
         // Só usa se o arquivo do slot escolhido já estiver presente — nunca
         // baixa sozinho na hora da leitura (download só com consentimento:
         // diálogo inicial ou botão em Ajustes).
@@ -748,54 +745,6 @@ class GroundingAndAiService(private val context: Context) {
                 }
             } else {
                 Log.w("GroundingAndAiService", "Modelo no aparelho falhou: ${initResult.exceptionOrNull()?.message}")
-            }
-        }
-
-        // Tier 2B: Ollama server (qwen2.5:1.5b por padrão) via API nativa /api/chat.
-        // O Ollama roda no PC/servidor — o app só o alcança se houver host configurado.
-        if (!hasActiveByok && !ollamaHost.isNullOrBlank()) {
-            val ollama = OllamaEngine(
-                host = ollamaHost,
-                model = ollamaModel?.ifBlank { "qwen2.5:1.5b" } ?: "qwen2.5:1.5b"
-            )
-            onStageProgress(
-                when (languageCode.lowercase()) {
-                    "en" -> "3/3 · Consulting Ollama server (${ollama.model})..."
-                    "es" -> "3/3 · Consultando al servidor Ollama (${ollama.model})..."
-                    "fr" -> "3/3 · Consultation du serveur Ollama (${ollama.model})..."
-                    else -> "3/3 · Consultando servidor Ollama (${ollama.model})..."
-                }
-            )
-            val ollamaText = ollama.generate(
-                systemPrompt = masterSystemPrompt,
-                userMessage = userMessage
-            ).getOrNull()
-
-            if (ollamaText != null && ollamaText.length > 30) {
-                val parts = ollamaText.split("---SOMATIC---")
-                val mainNarrative = parts[0].trim()
-                val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
-                    parts[1].trim()
-                } else {
-                    buildDeepSomaticPractice(
-                        languageCode = languageCode,
-                        arousal = arousal,
-                        valence = valence,
-                        focus = focus,
-                        concepts = titleCasedConcepts,
-                        topology = topology,
-                        userPrompt = userPrompt,
-                        seed = System.currentTimeMillis()
-                    )
-                }
-                return@withContext OrchestratedSimulationResult(
-                    narrativeMarkdown = mainNarrative,
-                    somaticShiftSuggestion = somatic,
-                    providerLabel = "Ollama · ${ollama.model}",
-                    grounding = grounding
-                )
-            } else {
-                Log.w("GroundingAndAiService", "Ollama indisponível em $ollamaHost — usando motor interno.")
             }
         }
 

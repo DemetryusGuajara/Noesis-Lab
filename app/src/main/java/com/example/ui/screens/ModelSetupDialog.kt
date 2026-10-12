@@ -72,7 +72,6 @@ fun ModelSetupDialog(
             }
         )
     }
-    var host by remember { mutableStateOf(LlmPrefs.getHost(context)) }
     var dontShow by remember { mutableStateOf(false) }
     var phase by remember { mutableIntStateOf(0) } // 0 = choices, 1 = progress, 2 = done
     var progress by remember { mutableFloatStateOf(-1f) }
@@ -148,7 +147,6 @@ fun ModelSetupDialog(
             statusText = "conectando..."
             lastPct = -1
             LlmPrefs.setStorage(context, storage)
-            LlmPrefs.setHost(context, host)
             LlmPrefs.setSlot(context, when (modelChoice) {
                 "lite" -> LlmPrefs.SLOT_LITE
                 "ultra" -> LlmPrefs.SLOT_ULTRA
@@ -236,16 +234,6 @@ fun ModelSetupDialog(
                         desc = strings.modelChoiceUltraDesc,
                         selected = modelChoice == "ultra",
                         onSelect = { modelChoice = "ultra" }
-                    )
-
-                    OutlinedTextField(
-                        value = host,
-                        onValueChange = { host = it },
-                        label = { Text(strings.modelOllamaHostLabel) },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("model_dialog_host_input")
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
