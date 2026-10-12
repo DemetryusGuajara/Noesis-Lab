@@ -21,6 +21,15 @@ O **Noesis Lab** é um laboratório fenomenológico interativo para Android. Ele
 
 Em vez de tratar as emoções humanas como meras etiquetas estáticas ou problemas a serem "consertados", o Noesis Lab convida a pessoa a posicionar fisicamente seus conceitos internos como esferas celestes em uma tela tátil bidimensional. A configuração espacial resultante — proximidade, distância, massa e tensão — revela a arquitetura invisível do momento presente.
 
+```
+       [ Medo ] (periferia / tensão)
+          \
+           \  (polaridade / distância protetora)
+            \
+   [ Coragem ] <---- afinidade ----> [ Desejo ]
+        (centro / âncora)
+```
+
 ---
 
 ## 💡 Pilares e Funcionalidades
@@ -57,6 +66,12 @@ Se o Noesis Lab contribuiu para seus momentos de reflexão ou trabalho criativo,
 ## 👨‍💻 Créditos & Autoria
 
 Projeto desenvolvido com amor ❤️ por **MediaMind Labs**  
-Mantido por: [@lucas-mediamind](https://github.com/lucas-mediamind)
+Mantido por: [@DemetryusGuajara](https://github.com/DemetryusGuajara)
 
 *Licenciado sob a [Licença MIT](LICENSE).*
+
+---
+
+## 🎨 Atribuição do Ícone
+
+Ícone do app por [Darius Dan](https://www.flaticon.com/br/autores/darius-dan) do [Flaticon](https://www.flaticon.com/br/icones-gratis/perspectiva)

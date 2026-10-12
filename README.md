@@ -1,6 +1,6 @@
 # Noesis Lab 🌌
-> **Cartografia Fenomenológica da Consciência & Oráculo Perceptivo**  
-> *Phenomenological Cartography of Consciousness & Perceptive Oracle*
+> **Phenomenological Cartography of Consciousness & Perceptive Oracle** 
+> *Cartografia Fenomenológica da Consciência & Oráculo Perceptivo* 
 
 [![Android](https://img.shields.io/badge/Platform-Android-3DDC84?logo=android&logoColor=white)](https://android.com)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
@@ -13,6 +13,7 @@
 - 🌐 [Português (Brasil)](README.pt-BR.md)
 - 🌐 [English](README.md)
 - 🌐 [Español](README.es.md)
+- 🌐 [Français](README.fr.md)
 
 ---
 
@@ -23,11 +24,11 @@
 Rather than treating human emotion as static labels or problems to "fix", Noesis Lab invites the user to physically arrange internal concepts as celestial spheres across a 2D tactile canvas. The spatial configuration—proximity, distance, mass, and tension—reveals the hidden architecture of the present moment.
 
 ```
-       [ Medo ] (periphery / tension)
+       [ Fear ] (periphery / tension)
           \
            \  (polarity / protective distance)
             \
-   [ Coragem ] <---- affinity ----> [ Desejo ]
+   [ Courage ] <---- affinity ----> [ Wish ]
         (center / anchor)
 ```
 
@@ -77,6 +78,12 @@ If Noesis Lab inspires your contemplative journey or creative inquiry, consider 
 ## 👨‍💻 Credits & Author
 
 Crafted with love ❤️ by **MediaMind Labs**  
-Maintained by: [@lucas-mediamind](https://github.com/lucas-mediamind)
+Maintained by: [@DemetryusGuajara](https://github.com/DemetryusGuajara)
 
 *Licensed under the [MIT License](LICENSE).*
+
+---
+
+## 🎨 Icon Attribution
+
+App icon by [Darius Dan](https://www.flaticon.com/authors/darius-dan) from [Flaticon](https://www.flaticon.com/free-icons/perspective)
