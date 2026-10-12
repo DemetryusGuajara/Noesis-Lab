@@ -4,6 +4,7 @@ import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -14,6 +15,25 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.hypot
+
+data class SphereSpatialDescriptor(
+    val name: String,
+    val importanceMass: Float, // 0.4f .. 2.5f
+    val weightHeaviness: Float, // 0.0f .. 1.0f
+    val posX: Float,
+    val posY: Float
+)
+
+data class SpatialTopologyAnalysis(
+    val dominantSphere: SphereSpatialDescriptor?,
+    val closestAffinityPair: Pair<SphereSpatialDescriptor, SphereSpatialDescriptor>?,
+    val closestDistance: Float,
+    val furthestPolarityPair: Pair<SphereSpatialDescriptor, SphereSpatialDescriptor>?,
+    val furthestDistance: Float,
+    val heavySpheres: List<SphereSpatialDescriptor>,
+    val lightSpheres: List<SphereSpatialDescriptor>
+)
 
 data class GroundingSource(
     val sourceType: String,
@@ -53,9 +73,9 @@ data class OrchestratedSimulationResult(
 
 class GroundingAndAiService {
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(18, TimeUnit.SECONDS)
-        .writeTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(14, TimeUnit.SECONDS)
+        .readTimeout(22, TimeUnit.SECONDS)
+        .writeTimeout(14, TimeUnit.SECONDS)
         .build()
 
     private val pingClient = OkHttpClient.Builder()
@@ -65,11 +85,62 @@ class GroundingAndAiService {
         .build()
 
     /**
-     * Queries the official Wikipedia REST Summary API strictly for the user's
-     * ACTIVE CONCEPTS in their mental field.
-     * Absolutely rejects all pop-culture artifacts (musical duos like Tonico e Tinoco,
-     * telenovelas, songs, albums, sports, or celebrities), ensuring purely substantive
-     * philosophical, psychological, cognitive, and somatic grounding.
+     * Computes the exact spatial and relational geometry of the user's spheres on the canvas:
+     * - Affinity Pair (closest spheres = fusion, alliance, mutual reinforcement)
+     * - Polarity Pair (furthest spheres = tension, avoidance, protective boundary)
+     * - Dominant Anchor (highest importance & centrality)
+     */
+    fun analyzeSpatialTopology(spheres: List<SphereSpatialDescriptor>): SpatialTopologyAnalysis {
+        if (spheres.isEmpty()) {
+            return SpatialTopologyAnalysis(null, null, 0f, null, 0f, emptyList(), emptyList())
+        }
+
+        val dominant = spheres.maxByOrNull { s ->
+            val centerBonus = (1.2f - hypot(s.posX, s.posY)).coerceAtLeast(0.2f)
+            s.importanceMass * 0.75f + centerBonus * 0.25f
+        }
+
+        var minD = Float.MAX_VALUE
+        var maxD = -1f
+        var closestPair: Pair<SphereSpatialDescriptor, SphereSpatialDescriptor>? = null
+        var furthestPair: Pair<SphereSpatialDescriptor, SphereSpatialDescriptor>? = null
+
+        if (spheres.size >= 2) {
+            for (i in spheres.indices) {
+                for (j in i + 1 until spheres.size) {
+                    val s1 = spheres[i]
+                    val s2 = spheres[j]
+                    val d = hypot(s2.posX - s1.posX, s2.posY - s1.posY)
+                    if (d < minD) {
+                        minD = d
+                        closestPair = s1 to s2
+                    }
+                    if (d > maxD) {
+                        maxD = d
+                        furthestPair = s1 to s2
+                    }
+                }
+            }
+        }
+
+        val heavy = spheres.filter { it.weightHeaviness >= 0.52f }
+        val light = spheres.filter { it.weightHeaviness < 0.52f }
+
+        return SpatialTopologyAnalysis(
+            dominantSphere = dominant,
+            closestAffinityPair = closestPair,
+            closestDistance = if (minD == Float.MAX_VALUE) 0f else minD,
+            furthestPolarityPair = furthestPair,
+            furthestDistance = if (maxD < 0f) 0f else maxD,
+            heavySpheres = heavy,
+            lightSpheres = light
+        )
+    }
+
+    /**
+     * Deep Multi-Source Conceptual & Academic Research:
+     * Fetches full multi-paragraph encyclopedic extracts via MediaWiki Extracts API + REST Summary API,
+     * alongside Crossref academic literature on Philosophy of Mind and Affective Neuroscience.
      */
     suspend fun fetchLiveGrounding(
         queryConcepts: List<String>,
@@ -84,18 +155,19 @@ class GroundingAndAiService {
                 else -> "en"
             }
 
-            // Only ground actual concept spheres placed by the user on the field
             val cleanConcepts = queryConcepts
                 .map { formatConceptTitleCase(it) }
                 .filter { it.length in 2..35 }
                 .distinct()
-                .take(4)
+                .take(5)
 
             val wikiDeferreds = cleanConcepts.map { term ->
-                async { fetchCleanConceptSummary(term, wikiLang) }
+                async { fetchDeepConceptExtract(term, wikiLang) }
             }
             val academicDeferred = async {
-                fetchAcademicWorks(cleanConcepts.joinToString(" ").ifBlank { "Consciousness Perception Emotion" })
+                fetchAcademicWorks(
+                    cleanConcepts.joinToString(" ").ifBlank { "Phenomenology Affective Neuroscience Consciousness" }
+                )
             }
 
             val wikiList = wikiDeferreds.mapNotNull { it.await() }.distinctBy { it.conceptTerm }
@@ -109,97 +181,89 @@ class GroundingAndAiService {
     }
 
     /**
-     * Queries Wikipedia REST API directly for clean encyclopedic summaries of concepts.
+     * Queries both the Wikipedia Action API (full multi-paragraph intro extract) and
+     * the REST Summary API, with domain disambiguation fallbacks (`(filosofia)`, `(psicologia)`).
      */
-    private fun fetchCleanConceptSummary(term: String, lang: String): GroundingSource? {
+    private fun fetchDeepConceptExtract(term: String, lang: String): GroundingSource? {
         val cleanTerm = term.trim()
         if (cleanTerm.isBlank()) return null
 
-        return runCatching {
-            val encoded = URLEncoder.encode(cleanTerm, "UTF-8")
-            val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
-            val req = Request.Builder()
-                .url(summaryUrl)
-                .header("User-Agent", "NoesisLab/2.0 (SubjectiveRealitySimulator; Android)")
-                .get()
-                .build()
+        // 1. Try domain-disambiguated philosophical/psychological articles first or exact title
+        val candidates = when (lang) {
+            "pt" -> listOf(cleanTerm, "${cleanTerm}_(filosofia)", "${cleanTerm}_(psicologia)", "${cleanTerm}_(emoção)")
+            "es" -> listOf(cleanTerm, "${cleanTerm}_(filosofía)", "${cleanTerm}_(psicología)")
+            "fr" -> listOf(cleanTerm, "${cleanTerm}_(philosophie)", "${cleanTerm}_(psychologie)")
+            else -> listOf(cleanTerm, "${cleanTerm}_(philosophy)", "${cleanTerm}_(psychology)")
+        }
 
-            httpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
+        for (candidate in candidates) {
+            val result = runCatching {
+                val encoded = URLEncoder.encode(candidate, "UTF-8")
+                // First check REST summary for metadata & type verification
+                val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
+                val req = Request.Builder()
+                    .url(summaryUrl)
+                    .header("User-Agent", "NoesisLab/2.4 (PhenomenologicalSimulator; Android)")
+                    .get()
+                    .build()
+
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val body = resp.body?.string() ?: return@use null
                     val json = JSONObject(body)
                     val type = json.optString("type", "")
                     val title = json.optString("title", "")
                     val desc = json.optString("description", "")
-                    val rawExtract = json.optString("extract", "")
+                    val summaryExtract = json.optString("extract", "")
 
-                    if (isValidEncyclopedicConcept(title, type, rawExtract, desc)) {
-                        val sanitized = sanitizeEncyclopedicText(rawExtract)
-                        if (sanitized.isNotBlank()) {
-                            return GroundingSource(
-                                sourceType = "WIKIPEDIA",
-                                title = title,
-                                conceptTerm = cleanTerm,
-                                cleanExtract = sanitized,
-                                description = desc
-                            )
-                        }
+                    if (!isValidEncyclopedicConcept(title, type, summaryExtract, desc)) {
+                        return@use null
                     }
-                }
-            }
 
-            // Fallback: If direct title failed, try with domain disambiguation e.g. "(psicologia)" or "(filosofia)"
-            fetchDisambiguatedConcept(cleanTerm, lang)
-        }.getOrNull()
-    }
+                    // Now fetch the deeper multi-paragraph intro extract from Action API
+                    val deepExtract = fetchFullIntroParagraphs(title, lang) ?: summaryExtract
+                    val sanitized = sanitizeEncyclopedicText(deepExtract).take(850)
 
-    private fun fetchDisambiguatedConcept(term: String, lang: String): GroundingSource? {
-        val qualifiers = when (lang) {
-            "pt" -> listOf("_(psicologia)", "_(filosofia)", "_(mente)", "_(emoção)")
-            "es" -> listOf("_(psicología)", "_(filosofía)", "_(mente)")
-            else -> listOf("_(psychology)", "_(philosophy)", "_(mind)")
-        }
-
-        for (q in qualifiers) {
-            val candidate = "$term$q"
-            val encoded = URLEncoder.encode(candidate, "UTF-8")
-            val summaryUrl = "https://$lang.wikipedia.org/api/rest_v1/page/summary/$encoded"
-            val req = Request.Builder()
-                .url(summaryUrl)
-                .header("User-Agent", "NoesisLab/2.0")
-                .get()
-                .build()
-
-            val source = runCatching {
-                httpClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val json = JSONObject(resp.body?.string() ?: "{}")
-                        val type = json.optString("type", "")
-                        val title = json.optString("title", "")
-                        val extract = json.optString("extract", "")
-                        val desc = json.optString("description", "")
-                        if (isValidEncyclopedicConcept(title, type, extract, desc)) {
-                            GroundingSource(
-                                sourceType = "WIKIPEDIA",
-                                title = title,
-                                conceptTerm = term,
-                                cleanExtract = sanitizeEncyclopedicText(extract),
-                                description = desc
-                            )
-                        } else null
+                    if (sanitized.length >= 40) {
+                        GroundingSource(
+                            sourceType = "WIKIPEDIA",
+                            title = title,
+                            conceptTerm = cleanTerm,
+                            cleanExtract = sanitized,
+                            description = desc
+                        )
                     } else null
                 }
             }.getOrNull()
 
-            if (source != null) return source
+            if (result != null) return result
         }
         return null
     }
 
-    /**
-     * Strictly verifies that the entry is a real cognitive, philosophical, psychological,
-     * physical, or biological concept and NOT pop-culture, a music duo, TV show, or sports team.
-     */
+    private fun fetchFullIntroParagraphs(exactTitle: String, lang: String): String? {
+        return runCatching {
+            val encoded = URLEncoder.encode(exactTitle, "UTF-8")
+            val apiUrl = "https://$lang.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&redirects=1&titles=$encoded&format=json"
+            val req = Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", "NoesisLab/2.4 (Android)")
+                .get()
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val root = JSONObject(resp.body?.string() ?: return@use null)
+                val pages = root.optJSONObject("query")?.optJSONObject("pages") ?: return@use null
+                val keys = pages.keys()
+                if (keys.hasNext()) {
+                    val pageObj = pages.optJSONObject(keys.next())
+                    pageObj?.optString("extract")?.takeIf { it.length > 60 }
+                } else null
+            }
+        }.getOrNull()
+    }
+
     private fun isValidEncyclopedicConcept(
         title: String,
         type: String,
@@ -209,7 +273,6 @@ class GroundingAndAiService {
         if (type == "disambiguation") return false
         val lower = "$title $description $extract".lowercase()
 
-        // Strict blacklist to eliminate unwanted pop-culture artifacts
         val forbiddenKeywords = listOf(
             "dupla", "cantor", "cantora", "álbum", "album", "música", "canção", "canción",
             "telenovela", "novela", "sertanejo", "futebol", "ator", "atriz", "filme",
@@ -241,10 +304,10 @@ class GroundingAndAiService {
     private fun fetchAcademicWorks(query: String): List<GroundingSource> {
         return runCatching {
             val encoded = URLEncoder.encode(query, "UTF-8")
-            val url = "https://api.crossref.org/works?query=$encoded&rows=2&select=title,abstract"
+            val url = "https://api.crossref.org/works?query=$encoded&rows=3&select=title,abstract"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "NoesisLab/2.0")
+                .header("User-Agent", "NoesisLab/2.4")
                 .get()
                 .build()
 
@@ -263,7 +326,7 @@ class GroundingAndAiService {
                     val rawAbstract = obj.optString("abstract", "")
                         .replace(Regex("<[^>]*>"), "")
                         .trim()
-                        .take(220)
+                        .take(280)
                     if (title.isNotBlank()) {
                         list.add(
                             GroundingSource(
@@ -437,16 +500,59 @@ class GroundingAndAiService {
     }
 
     /**
+     * Master Phenomenological System Prompt:
+     * Articulates Spinoza, Merleau-Ponty, Deleuze & Guattari, Francisco Varela, and Affective Neuroscience,
+     * reading the spatial topology (proximity = affinity; distance = polarity) while keeping language
+     * deeply insightful, clear, warm, and accessible.
+     */
+    fun buildMasterPhenomenologicalSystemPrompt(
+        languageInstruction: String,
+        particlesSummary: String,
+        topologyDescription: String,
+        cleanKnowledgeSummary: String,
+        arousal: Float,
+        valence: Float,
+        focus: Float
+    ): String = """
+        Você é o Noesis Lab, um filósofo da mente, fenomenólogo e guia perceptivo.
+        $languageInstruction
+
+        SUA MISSÃO E TOM DE VOZ:
+        - Produza uma leitura PROFUNDA, RICA EM INSIGHTS e REVELADORA, mas com linguagem LÚCIDA, CALOROSA e ACESSÍVEL (nunca use jargão acadêmico hermético ou frases rasas de autoajuda).
+        - Esta sessão é ÚNICA e INDEPENDENTE. Analise exclusivamente o estado presente desenhado pelo usuário.
+
+        FUNDAMENTAÇÃO TEÓRICA QUE GUIA SEU OLHAR:
+        1. Baruch de Espinosa (Ética dos Afetos): Veja cada emoção ou conceito não como defeito moral, mas como uma variação da *potência de agir* (conatus). Mostre como transformar paixões passivas (que paralisam) em afetos ativos (compreensão que liberta).
+        2. Maurice Merleau-Ponty (Fenomenologia da Percepção): A mente não está separada do corpo; o que o usuário posicionou na tela reflete como o corpo dele está habitando o espaço e o tempo hoje.
+        3. Gilles Deleuze & Félix Guattari (Rizoma e Intensidades): Aproxime conceitos aparentemente distantes (ex: um sentimento e uma ideia abstrata) para revelar *linhas de fuga* criativas onde o usuário via apenas bloqueio.
+        4. Francisco Varela & Neurociência Afetiva Preditiva: Explique como o cérebro antecipa cenários e como a posição espacial das esferas revela acordos internos de proteção ou expansão.
+
+        LEITURA DA GEOMETRIA ESPACIAL DAS ESFERAS:
+        - Esferas do campo: $particlesSummary
+        - Topologia espacial calculada: $topologyDescription
+        - Estado corporal (Biofeedback): Ritmo Interno=${(arousal * 100).toInt()}%, Abertura Afetiva=${(valence * 100).toInt()}%, Profundidade de Foco=${(focus * 100).toInt()}%.
+        - Base conceitual pesquisada:
+        $cleanKnowledgeSummary
+
+        ESTRUTURA OBRIGATÓRIA DA RESPOSTA (em Markdown):
+        1. Comece com um título `#` poético e revelador que sintetize a constelação atual.
+        2. Na seção `### 1. A Geometria Invisível do Seu Momento`, interprete a proximidade (afinidade/aliança) e a distância (fronteira/tensão) entre as esferas que o usuário posicionou.
+        3. Na seção `### 2. O Insight Central: Além do Dilema`, dialogue profundamente com o que o usuário escreveu (ou com a combinação das esferas), trazendo uma virada de chave filosófica e psicológica que desmonte culpas ou falsas dicotomias.
+        4. Na seção `### 3. O Que Cada Esfera Revela Hoje`, dedique um tópico `- **Nome da Esfera:**` para cada esfera presente no campo, articulando sua importância (cor), sua sensação (leve ou pesada) e seu sentido profundo.
+        5. Ao final, insira o separador exato `---SOMATIC---` e escreva um exercício prático de percepção corporal em 3 passos concretos (visão periférica, respiração vagal e soltura muscular) conectado às esferas do usuário.
+    """.trimIndent()
+
+    /**
      * Multi-Tier Conscious Simulation Orchestration:
-     * Tier 1: User's custom BYOK provider (if configured and active).
-     * Tier 2: Deep Phenomenological Synthesis Engine with clean Wikipedia grounding,
-     *         rigorous philosophical dialectics (Spinoza, Merleau-Ponty, Deleuze),
-     *         affective neuroscience insights, and concrete somatic grounding.
+     * - Stage 1: Spatial Topology & Relational Geometry Analysis.
+     * - Stage 2: Deep Multi-Paragraph Encyclopedic & Academic Grounding.
+     * - Stage 3: BYOK Provider (if active) OR Deep Multi-Sphere Dialectical Synthesis Engine.
      */
     suspend fun orchestrateConsciousSimulation(
         userPrompt: String,
         particlesSummary: String,
         conceptNames: List<String>,
+        spatialSpheres: List<SphereSpatialDescriptor> = emptyList(),
         arousal: Float,
         valence: Float,
         focus: Float,
@@ -459,43 +565,61 @@ class GroundingAndAiService {
         onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
+        val topology = analyzeSpatialTopology(spatialSpheres)
 
-        onStageProgress("Pesquisando conceitos enciclopédicos sobre ${titleCasedConcepts.take(3).joinToString(", ")}...")
+        onStageProgress(
+            when (languageCode.lowercase()) {
+                "en" -> "1/3 · Mapping spatial affinities and distances between ${titleCasedConcepts.take(3).joinToString(", ")}..."
+                "es" -> "1/3 · Mapeando afinidades espaciales y distancias entre ${titleCasedConcepts.take(3).joinToString(", ")}..."
+                "fr" -> "1/3 · Cartographie des affinités spatiales entre ${titleCasedConcepts.take(3).joinToString(", ")}..."
+                else -> "1/3 · Mapeando geometria espacial, afinidades e distâncias entre ${titleCasedConcepts.take(3).joinToString(", ")}..."
+            }
+        )
+        delay(450)
+
+        onStageProgress(
+            when (languageCode.lowercase()) {
+                "en" -> "2/3 · Deepening encyclopedic and philosophical research on active concepts..."
+                "es" -> "2/3 · Profundizando investigación enciclopédica y filosófica sobre los conceptos..."
+                "fr" -> "2/3 · Approfondissement de la recherche encyclopédique et philosophique..."
+                else -> "2/3 · Aprofundando pesquisa enciclopédica e filosófica sobre cada conceito..."
+            }
+        )
         val grounding = fetchLiveGrounding(
             queryConcepts = titleCasedConcepts,
             userPrompt = userPrompt,
             languageCode = languageCode
         )
 
+        val topologySummary = buildTopologyDescriptionString(topology)
+        val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
+            "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
+        }
+
+        val masterSystemPrompt = buildMasterPhenomenologicalSystemPrompt(
+            languageInstruction = languageInstruction,
+            particlesSummary = particlesSummary,
+            topologyDescription = topologySummary,
+            cleanKnowledgeSummary = cleanKnowledgeSummary,
+            arousal = arousal,
+            valence = valence,
+            focus = focus
+        )
+
+        val userMessage = """
+            Esferas ativas no mapa: $particlesSummary
+            Relações espaciais: $topologySummary
+            Relato / Contexto do usuário nesta sessão: ${userPrompt.ifBlank { "Leitura direta da constelação atual das esferas." }}
+        """.trimIndent()
+
         // Tier 1: User's BYOK Provider (if configured)
         if (!activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()) {
-            onStageProgress("Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...")
-            val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
-                "- ${it.conceptTerm}: ${it.cleanExtract.take(240)}"
-            }
-
-            val systemPrompt = """
-                Você é o Noesis Lab, um engenheiro de realidades mentais, filósofo da mente e guia cognitivo acolhedor.
-                $languageInstruction
-                
-                DIRETRIZES FUNDAMENTAIS:
-                1. NUNCA use clichês robóticos ou generalismos superficiais. Escreva com perspicácia, riqueza reflexiva, acolhimento e clareza acessível.
-                2. Fundamente suas ideias em Espinosa (o conatus e a potência de agir), Merleau-Ponty (a percepção incorporada), Deleuze (multiplicidades e linhas de intensidade) e na neurociência afetiva contemporânea.
-                3. Articule diretamente o mapa de esferas ($particlesSummary), o ritmo corporal do usuário (Ritmo=${(arousal * 100).toInt()}%, Abertura=${(valence * 100).toInt()}%, Foco=${(focus * 100).toInt()}%) e o que ele escreveu.
-                4. Conhecimento conceitual: $cleanKnowledgeSummary.
-                5. Separe com "---SOMATIC---" um exercício prático sensorial concreto, acolhedor e vívido para ser sentido no corpo agora mesmo.
-            """.trimIndent()
-
-            val userMessage = """
-                Esferas no campo: $particlesSummary
-                Contexto do usuário: ${userPrompt.ifBlank { "Reflexão sobre a constelação atual das esferas." }}
-            """.trimIndent()
-
+            onStageProgress("3/3 · Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...")
             val byokText = callOpenAiCompatibleEndpoint(
                 endpointUrl = "${normalizeOpenAiBaseUrl(activeBaseUrl)}/chat/completions",
                 apiKey = activeApiKey,
                 modelId = activeModelId,
-                systemPrompt = systemPrompt,
+                systemPrompt = masterSystemPrompt,
                 userMessage = userMessage
             )
 
@@ -505,12 +629,13 @@ class GroundingAndAiService {
                 val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
                     parts[1].trim()
                 } else {
-                    buildDynamicWebGroundedSomaticPractice(
+                    buildDeepSomaticPractice(
                         languageCode = languageCode,
                         arousal = arousal,
                         valence = valence,
                         focus = focus,
                         concepts = titleCasedConcepts,
+                        topology = topology,
                         userPrompt = userPrompt
                     )
                 }
@@ -523,11 +648,63 @@ class GroundingAndAiService {
             }
         }
 
-        // Tier 2: Deep Phenomenological Synthesis Engine with Clean Grounding
-        onStageProgress("Sintetizando reflexão fenomenológica e experimento sensorial...")
-        val synthesized = synthesizeDeepPhenomenologicalNarrative(
+        // Tier 2: Built-in Neural LLM (Gemini 3.5 Flash)
+        val geminiKey = com.example.BuildConfig.GEMINI_API_KEY
+        if (geminiKey.isNotBlank() && geminiKey != "MY_GEMINI_API_KEY") {
+            onStageProgress(
+                when (languageCode.lowercase()) {
+                    "en" -> "3/3 · Neural synthesis via embedded Gemini 3.5 Flash engine..."
+                    "es" -> "3/3 · Síntesis neural mediante motor Gemini 3.5 Flash..."
+                    "fr" -> "3/3 · Synthèse neuronale via le moteur Gemini 3.5 Flash..."
+                    else -> "3/3 · Gerando síntese neural profunda via Gemini 3.5 Flash..."
+                }
+            )
+            val neuralText = callGeminiGenerateContent(
+                apiKey = geminiKey,
+                systemInstruction = masterSystemPrompt,
+                userMessage = userMessage
+            )
+
+            if (neuralText != null) {
+                val parts = neuralText.split("---SOMATIC---")
+                val mainNarrative = parts[0].trim()
+                val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
+                    parts[1].trim()
+                } else {
+                    buildDeepSomaticPractice(
+                        languageCode = languageCode,
+                        arousal = arousal,
+                        valence = valence,
+                        focus = focus,
+                        concepts = titleCasedConcepts,
+                        topology = topology,
+                        userPrompt = userPrompt
+                    )
+                }
+                return@withContext OrchestratedSimulationResult(
+                    narrativeMarkdown = mainNarrative,
+                    somaticShiftSuggestion = somatic,
+                    providerLabel = "Rede Neural Nativa (Gemini 3.5 Flash)",
+                    grounding = grounding
+                )
+            }
+        }
+
+        // Tier 3: Autonomous On-Device Dialectical Phenomenological Engine
+        onStageProgress(
+            when (languageCode.lowercase()) {
+                "en" -> "3/3 · Synthesizing deep phenomenological insights and somatic reconfiguration..."
+                "es" -> "3/3 · Sintetizando insights fenomenológicos profundos y práctica somática..."
+                "fr" -> "3/3 · Synthèse des insights phénoménologiques profonds et pratique somatique..."
+                else -> "3/3 · Cruzando geometria das esferas, filosofia e neurociência para sintetizar sua leitura..."
+            }
+        )
+        delay(550)
+
+        val synthesized = synthesizeDeepMultiSphereNarrative(
             userPrompt = userPrompt,
-            particlesSummary = particlesSummary,
+            spatialSpheres = spatialSpheres,
+            topology = topology,
             conceptNames = titleCasedConcepts,
             arousal = arousal,
             valence = valence,
@@ -535,21 +712,38 @@ class GroundingAndAiService {
             grounding = grounding,
             languageCode = languageCode
         )
-        val somatic = buildDynamicWebGroundedSomaticPractice(
+        val somatic = buildDeepSomaticPractice(
             languageCode = languageCode,
             arousal = arousal,
             valence = valence,
             focus = focus,
             concepts = titleCasedConcepts,
+            topology = topology,
             userPrompt = userPrompt
         )
 
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
-            providerLabel = "Motor Fenomenológico + Base Conceitual",
+            providerLabel = "Motor Dialético Profundo + Pesquisa Enciclopédica",
             grounding = grounding
         )
+    }
+
+    private fun buildTopologyDescriptionString(topology: SpatialTopologyAnalysis): String {
+        val parts = mutableListOf<String>()
+        topology.dominantSphere?.let {
+            parts.add("Âncora central de maior gravidade: ${it.name} (Importância=${String.format("%.1f", it.importanceMass)}, Peso=${(it.weightHeaviness * 100).toInt()}%)")
+        }
+        topology.closestAffinityPair?.let { (a, b) ->
+            parts.add("Par de maior proximidade/afinidade: ${a.name} e ${b.name} (distância=${String.format("%.2f", topology.closestDistance)})")
+        }
+        topology.furthestPolarityPair?.let { (a, b) ->
+            if (a.name != b.name && topology.closestAffinityPair != topology.furthestPolarityPair) {
+                parts.add("Par de maior distância/polaridade: ${a.name} e ${b.name} (distância=${String.format("%.2f", topology.furthestDistance)})")
+            }
+        }
+        return parts.joinToString(" | ").ifBlank { "Constelação em equilíbrio distribuído" }
     }
 
     private fun callOpenAiCompatibleEndpoint(
@@ -572,7 +766,7 @@ class GroundingAndAiService {
                         put("content", userMessage)
                     })
                 })
-                put("temperature", 0.72)
+                put("temperature", 0.74)
             }
 
             val reqBuilder = Request.Builder()
@@ -597,14 +791,70 @@ class GroundingAndAiService {
         }.getOrNull()
     }
 
+    private fun callGeminiGenerateContent(
+        apiKey: String,
+        systemInstruction: String,
+        userMessage: String
+    ): String? {
+        return runCatching {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey.trim()}"
+            val payload = JSONObject().apply {
+                put("system_instruction", JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", systemInstruction)
+                        })
+                    })
+                })
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("text", userMessage)
+                            })
+                        })
+                    })
+                })
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.74)
+                    put("maxOutputTokens", 2048)
+                })
+            }
+
+            val req = Request.Builder()
+                .url(url)
+                .header("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching null
+                val bodyStr = resp.body?.string() ?: return@runCatching null
+                val root = JSONObject(bodyStr)
+                val candidates = root.optJSONArray("candidates") ?: return@runCatching null
+                val firstCandidate = candidates.optJSONObject(0) ?: return@runCatching null
+                val content = firstCandidate.optJSONObject("content") ?: return@runCatching null
+                val parts = content.optJSONArray("parts") ?: return@runCatching null
+                val sb = StringBuilder()
+                for (i in 0 until parts.length()) {
+                    val p = parts.optJSONObject(i)
+                    p?.optString("text")?.let { sb.append(it) }
+                }
+                sb.toString().trim().takeIf { it.length > 30 }
+            }
+        }.getOrNull()
+    }
+
     /**
-     * Synthesizes an articulate, deeply mature, psychologically astute and accessible narrative:
-     * Free from mechanical templates, free from pop-culture artifacts, directly engaging
-     * with the user's dilemma with genuine insight and transformative clarity.
+     * Deep Multi-Sphere Spatial & Dialectical Phenomenological Engine:
+     * Analyzes ALL spheres on the user's canvas, their exact proximity (affinity) and distance (polarity),
+     * their individual importance (Hue) and weight (Sensation), the multi-paragraph encyclopedic grounding,
+     * and the user's personal text to craft a rich, non-repetitive, revelatory essay.
      */
-    private fun synthesizeDeepPhenomenologicalNarrative(
+    private fun synthesizeDeepMultiSphereNarrative(
         userPrompt: String,
-        particlesSummary: String,
+        spatialSpheres: List<SphereSpatialDescriptor>,
+        topology: SpatialTopologyAnalysis,
         conceptNames: List<String>,
         arousal: Float,
         valence: Float,
@@ -613,139 +863,244 @@ class GroundingAndAiService {
         languageCode: String
     ): String {
         val conceptsList = if (conceptNames.isNotEmpty()) conceptNames else listOf("Desejo", "Medo", "Tempo")
-        val primaryConcept = conceptsList.firstOrNull() ?: "Desejo"
-        val secondaryConcept = conceptsList.getOrNull(1) ?: "Tempo"
+        val primaryConcept = topology.dominantSphere?.name ?: conceptsList.firstOrNull() ?: "Desejo"
+        val secondaryConcept = conceptsList.firstOrNull { it != primaryConcept } ?: "Tempo"
         val userContext = userPrompt.trim()
 
         val cleanDefinitionsMap = grounding.wikiSources.associate { it.conceptTerm.lowercase() to it.cleanExtract }
-        val primaryCleanDef = cleanDefinitionsMap[primaryConcept.lowercase()]
-        val secondaryCleanDef = cleanDefinitionsMap[secondaryConcept.lowercase()]
+        val affinityPair = topology.closestAffinityPair
+        val polarityPair = topology.furthestPolarityPair
 
         if (languageCode.lowercase() != "pt") {
             return buildString {
-                appendLine("# Cartography of Consciousness: The Dynamic between $primaryConcept and $secondaryConcept")
-                appendLine("When you position **$primaryConcept** alongside **$secondaryConcept** on your mental canvas, your mind is mapping a living dialogue between impulse and regulation, courage and care.")
+                appendLine("# The Living Constellation of $primaryConcept and $secondaryConcept")
+                appendLine("Your mental space right now is not a static list of feelings—it is a dynamic field of forces where each sphere bends the meaning of the others.")
                 appendLine()
-                appendLine("### The Space Between Forces")
-                appendLine("- **The Horizon of $primaryConcept:** In the philosophy of Spinoza, this represents the vector of your *conatus*—the innate drive to preserve and expand your power to act in the world.")
-                appendLine("- **The Role of $secondaryConcept:** Rather than an obstacle, this quality serves as a regulatory boundary, preserving your energy from premature dissipation.")
+                appendLine("### 1. The Hidden Geometry of Your Moment")
+                if (affinityPair != null) {
+                    appendLine("By placing **${affinityPair.first.name}** and **${affinityPair.second.name}** in close proximity, your intuition is signaling an active alliance between them. In Maurice Merleau-Ponty's phenomenology of perception, what we keep close in our field of attention forms our *perceptual anchor*—the lens through which your body is currently reading the world.")
+                }
+                if (polarityPair != null && polarityPair != affinityPair) {
+                    appendLine()
+                    appendLine("Meanwhile, the distance separating **${polarityPair.first.name}** and **${polarityPair.second.name}** reveals a protective boundary. Your psyche is keeping these two poles apart so that one does not overwhelm or silence the other.")
+                }
                 appendLine()
+                appendLine("### 2. The Central Insight: Beyond the Dilemma")
                 if (userContext.isNotBlank()) {
-                    appendLine("### Dialogue with What You Shared")
-                    appendLine("You reflected: *\"$userContext\"*.")
-                    appendLine("In embodied phenomenology, tension is not an enemy to be suppressed. It is vital energy searching for an authentic channel. With inner rhythm at **${(arousal * 100).toInt()}%** and openness at **${(valence * 100).toInt()}%**, give these two forces room to coexist peacefully today.")
+                    appendLine("Reflecting on what you shared—*\"$userContext\"*—notice how Baruch Spinoza's ethics of affects illuminates this state: tension arises not because one force is 'wrong', but because two legitimate movements of your *conatus* (your vital drive to expand and preserve yourself) are negotiating their rhythm.")
+                }
+                appendLine()
+                appendLine("### 3. What Each Sphere Reveals Today")
+                val spheresToRead = if (spatialSpheres.isNotEmpty()) spatialSpheres else conceptsList.map {
+                    SphereSpatialDescriptor(it, 1.3f, 0.45f, 0f, 0f)
+                }
+                spheresToRead.forEach { sp ->
+                    val def = cleanDefinitionsMap[sp.name.lowercase()]
+                    val insight = distillDeepSphereInsight(sp, def, languageCode)
+                    appendLine("- **${sp.name}:** $insight")
                 }
             }.trim()
         }
 
-        // Eloquent, Rich, Insightful Portuguese Synthesis
+        // Rich, Deep, Accessible Portuguese Phenomenological Essay
         return buildString {
-            appendLine("# Cartografia da Mente: A Tensão Viva Entre $primaryConcept e $secondaryConcept")
-            appendLine("Ao dispor **$primaryConcept** e **$secondaryConcept** no mesmo campo de atenção, você não está preso em uma contradição. A consciência humana funciona como um sistema dinâmico complexo: quando duas forças de pesos diferentes habitam o mesmo espaço, elas criam um gradiente de intensidade que mobiliza toda a sua percepção.")
+            appendLine("# Cartografia Viva: O Campo Entre $primaryConcept e $secondaryConcept")
+            appendLine("O que você acabou de desenhar na tela não é uma lista estática de palavras, mas uma **geometria viva de forças**. Na filosofia da mente e na neurociência afetiva, um estado interior nunca é feito de um único sentimento isolado: ele nasce exatamente da distância, da afinidade e do peso relativo entre tudo o que ocupa a sua atenção agora.")
             appendLine()
 
-            appendLine("### A Dialética das Forças no Seu Campo")
-            // Concept 1 Insight
-            val c1Insight = distillPhilosophicalCore(primaryConcept, primaryCleanDef)
-            appendLine("- **O Vetor de $primaryConcept:** $c1Insight")
-
-            // Concept 2 Insight
-            val c2Insight = distillPhilosophicalCore(secondaryConcept, secondaryCleanDef)
-            appendLine("- **O Filtro de $secondaryConcept:** $c2Insight")
-
-            appendLine()
-
-            // Personal Reflection Dialogue
-            if (userContext.isNotBlank()) {
-                appendLine("### Olhando Para o Seu Relato: *\"$userContext\"*")
-                val dilemmaInsight = analyzeUserDilemma(userContext, primaryConcept, secondaryConcept)
-                appendLine(dilemmaInsight)
-                appendLine()
+            // Section 1: Spatial Geometry (Proximity = Affinity, Distance = Polarity)
+            appendLine("### 1. A Geometria Invisível do Seu Momento")
+            if (affinityPair != null) {
+                val a = affinityPair.first
+                val b = affinityPair.second
+                val affinityNature = if (topology.closestDistance < 0.38f) {
+                    "uma fusão quase inseparável"
+                } else {
+                    "uma vizinhança de forte afinidade"
+                }
+                appendLine("Ao posicionar **${a.name}** bem próximo de **${b.name}** ($affinityNature), você revelou onde mora o núcleo de gravidade da sua mente hoje. Para a fenomenologia de Maurice Merleau-Ponty, aquilo que aproximamos no nosso espaço perceptivo funciona como um *acorde de fundo*: **${a.name}** está emprestando sua cor e seu tom para a forma como você experimenta **${b.name}**. Eles não estão competindo; estão alimentando um ao outro.")
+            } else {
+                appendLine("Com **$primaryConcept** ocupando o centro gravitacional do seu mapa, sua atenção escolheu este ponto como bússola para organizar as demais sensações do dia.")
             }
 
-            // High-order synthesis based on bodily metrics
-            appendLine("### A Integração Possível Hoje")
-            appendLine("Com o seu ritmo corporal calibrado em **${(arousal * 100).toInt()}%**, abertura afetiva em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, perceba a sabedoria contida nesta configuração. O papel da reflexão não é apagar o desconforto nem impor uma certeza artificial, mas oferecer a você um chão firme onde é seguro respirar, observar e agir com calma no seu próprio tempo.")
+            if (polarityPair != null && polarityPair != affinityPair && spatialSpheres.size >= 3) {
+                val p1 = polarityPair.first
+                val p2 = polarityPair.second
+                appendLine()
+                appendLine("Por outro lado, repare na distância que você deixou entre **${p1.name}** e **${p2.name}**. Quando mantemos duas esferas afastadas nas bordas do campo, nossa psique cria uma *fronteira de proteção*: é o modo inteligente que a sua mente encontrou para preservar **${p1.name}** sem que a pressão de **${p2.name}** invada ou desorganize tudo de uma vez.")
+            }
+
+            appendLine()
+
+            // Section 2: Central Philosophical & Psychological Insight addressing User Context
+            appendLine("### 2. O Insight Central: Além do Falso Dilema")
+            if (userContext.isNotBlank()) {
+                appendLine("Olhando diretamente para o contexto que você trouxe — *\"$userContext\"*:")
+                appendLine()
+                val deepDilemmaAnalysis = analyzeDeepDialecticalDilemma(
+                    userText = userContext,
+                    dominant = primaryConcept,
+                    secondary = secondaryConcept,
+                    heavyCount = topology.heavySpheres.size,
+                    arousal = arousal,
+                    valence = valence
+                )
+                appendLine(deepDilemmaAnalysis)
+            } else {
+                appendLine("Na tradição de Baruch de Espinosa, cada afeto que sentimos é uma variação da nossa *potência de agir* (*conatus*). Quando olhamos para as forças de **$primaryConcept** e **$secondaryConcept** juntas, o segredo não é tentar apagar a esfera mais densa para ficar apenas com a mais leve. Como lembram Gilles Deleuze e Francisco Varela, a vitalidade da mente nasce justamente de criar uma *linha de passagem* entre as duas: usar a lucidez de uma para dar contorno e direção à energia da outra.")
+            }
+
+            appendLine()
+
+            // Section 3: Individualized Reading of Every Active Sphere on the Canvas
+            appendLine("### 3. O Que Cada Esfera Pede de Você Hoje")
+            val spheresToRead = if (spatialSpheres.isNotEmpty()) {
+                spatialSpheres
+            } else {
+                conceptsList.map { SphereSpatialDescriptor(it, 1.3f, 0.45f, 0f, 0f) }
+            }
+
+            spheresToRead.forEach { sp ->
+                val rawDef = cleanDefinitionsMap[sp.name.lowercase()]
+                val sphereInsight = distillDeepSphereInsight(sp, rawDef, "pt")
+                appendLine("- **${sp.name}:** $sphereInsight")
+            }
+
+            // Section 4: Academic / Conceptual Cross-Pollination Note (if academic sources found)
+            if (grounding.academicSources.isNotEmpty()) {
+                val acadTitle = grounding.academicSources.first().title
+                appendLine()
+                appendLine("### 4. Ressonância Conceitual & Síntese")
+                appendLine("Com seu ritmo interno em **${(arousal * 100).toInt()}%**, abertura emocional em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, a literatura contemporânea (em diálogo com estudos como *\"$acadTitle\"*) aponta que a percepção muda no instante em que deixamos de ser reféns de um estado e passamos a ser seus observadores criativos. O simples gesto de mapear essas esferas já reorganiza a forma como o seu sistema nervoso processa este momento.")
+            }
         }.trim()
     }
 
-    private fun distillPhilosophicalCore(concept: String, cleanExtract: String?): String {
-        val lower = concept.lowercase()
-        return when {
-            lower.contains("desejo") ->
-                "Mais do que uma simples falta, o Desejo é o motor da agência humana—a força que projeta a imaginação para além do presente e mobiliza a sua potência de agir no mundo."
-            lower.contains("medo") ->
-                "O Medo não é covardia: é um radar biológico de preservação e reverência. Ele surge para sinalizar que aquilo que está em jogo tem peso real e importa profundamente para você."
-            lower.contains("tempo") ->
-                "O Tempo mede a distância entre a intenção e a maturação. Na experiência vivida, a pressa é uma tentativa de controle; o processo tem seu próprio ciclo de desenvolvimento."
-            lower.contains("identidade") ->
-                "Aquilo que chamamos de 'eu' é um rio contínuo de relações, e não um monumento de pedra. Permitir-se mudar de perspectiva diante de novas vivências é a maior prova de saúde psíquica."
-            lower.contains("criatividade") ->
-                "A Criatividade floresce exatamente no atrito entre elementos que pareciam opostos, transformando a inquietação em novas formas de enxergar e agir."
-            lower.contains("silêncio") ->
-                "O Silêncio não é ausência de conteúdo, mas a clareira onde o excesso de ruído se assenta e as intuições mais lúcidas finalmente encontram espaço para falar."
-            lower.contains("cansaço") || lower.contains("sono") ->
-                "O Cansaço é o corpo pedindo trégua da hipervigilância. Ele nos lembra de que a mente habita uma biologia com ritmos próprios que precisam ser honrados."
-            lower.contains("justiça") ->
-                "A busca pela justa medida entre aquilo que você oferece ao mundo e o respeito aos seus próprios limites de energia."
-            lower.contains("foco") ->
-                "O Foco é a arte de escolher suavemente o que deixar de lado por um momento, para que uma única direção ganhe profundidade e nitidez."
+    private fun distillDeepSphereInsight(
+        sphere: SphereSpatialDescriptor,
+        cleanExtract: String?,
+        lang: String
+    ): String {
+        val lower = sphere.name.lowercase()
+        val isHeavy = sphere.weightHeaviness >= 0.55f
+        val isHighImportance = sphere.importanceMass >= 1.55f
+
+        val weightQualifierPt = when {
+            isHighImportance && isHeavy -> "Configurada com alta importância e sensação densa (${(sphere.weightHeaviness * 100).toInt()}% de peso), esta esfera atua hoje como uma âncora grave que exige respeito ao seu ritmo."
+            isHighImportance && !isHeavy -> "Com alta importância mas sensação leve (${(sphere.weightHeaviness * 100).toInt()}% de peso), ela brilha como uma fonte de inspiração aberta, sem cobrança sufocante."
+            !isHighImportance && isHeavy -> "Mesmo em tamanho discreto, carrega uma densidade latente (${(sphere.weightHeaviness * 100).toInt()}% de peso)—um lembrete sutil no fundo da mente que pede acolhimento."
+            else -> "Flutuando com suavidade e leveza (${(sphere.weightHeaviness * 100).toInt()}% de peso), oferece respiro e espaço livre ao redor das outras ideias."
+        }
+
+        if (lang != "pt") {
+            val snippet = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..200 }?.trim()
+            return if (!snippet.isNullOrBlank()) {
+                "$snippet. In your constellation today (Weight ${(sphere.weightHeaviness * 100).toInt()}%), it shapes the tone of your inner space."
+            } else {
+                "Acts as a vital lens in your mental constellation (Weight ${(sphere.weightHeaviness * 100).toInt()}%), balancing impulse and reflection."
+            }
+        }
+
+        val coreMeaning = when {
+            lower.contains("desejo") || lower.contains("vontade") || lower.contains("paixão") ->
+                "Para Espinosa, o Desejo é a própria essência humana em movimento—não a carência do que falta, mas a força criadora que imagina novos futuros possíveis."
+            lower.contains("medo") || lower.contains("receio") || lower.contains("cautela") ->
+                "Na neurociência afetiva, o Medo não é um inimigo nem sinal de fraqueza: é uma sentinela antiga que só desperta diante daquilo que é precioso e tem valor real para a sua vida."
+            lower.contains("tempo") || lower.contains("futuro") || lower.contains("passado") || lower.contains("espera") ->
+                "Henri Bergson diferenciava o tempo do relógio (mecânico e apressado) da *duração interior* (o tempo vivo da maturação). Nem tudo o que é fértil floresce na velocidade da ansiedade."
+            lower.contains("identidade") || lower.contains("eu") ->
+                "A Identidade não é uma estátua pronta, mas uma narrativa em constante autopoiese (como ensinava Francisco Varela). Mudar de posição ou acolher novas dúvidas não ameaça quem você é; amplia sua inteireza."
+            lower.contains("criatividade") || lower.contains("arte") || lower.contains("invenção") ->
+                "Em Deleuze, criar é traçar uma *linha de fuga*—encontrar uma saída inédita onde o hábito só enxergava repetição. Ela transforma a tensão das outras esferas em matéria-prima expressiva."
+            lower.contains("silêncio") || lower.contains("calma") || lower.contains("vazio") || lower.contains("paz") ->
+                "O Silêncio é o intervalo acústico e mental indispensável para que os pensamentos decantem. Sem espaço vazio entre as notas, não existe música—apenas ruído."
+            lower.contains("cansaço") || lower.contains("sono") || lower.contains("exaustão") || lower.contains("repouso") ->
+                "O Cansaço é a sabedoria biológica do corpo interrompendo o excesso de exigência cognitiva. Honrar o descanso não é abandonar seus projetos, é devolver solo fértil para eles."
+            lower.contains("justiça") || lower.contains("equilíbrio") || lower.contains("ética") ->
+                "Representa a justa medida e a ecologia interior: o compromisso de não ser injusto consigo mesmo enquanto tenta dar conta das demandas do mundo."
+            lower.contains("foco") || lower.contains("força") || lower.contains("clareza") ->
+                "A atenção seletiva que recolhe a energia dispersa e a conduz para um único ponto de presença lúcida."
             else -> {
-                val candidateSentence = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..180 }?.trim()
-                if (!candidateSentence.isNullOrBlank()) {
-                    "$candidateSentence. Ao trazer este conceito para o centro do campo, você convida essa perspectiva a calibrar o seu olhar."
+                val cleanSentences = cleanExtract
+                    ?.split(Regex("(?<=[.!?])\\s+"))
+                    ?.filter { it.trim().length in 40..220 }
+                    ?.take(2)
+                    ?.joinToString(" ")
+                    ?.trim()
+
+                if (!cleanSentences.isNullOrBlank()) {
+                    "$cleanSentences Na sua constelação subjetiva, este conceito funciona como uma metáfora viva que organiza suas percepções de hoje."
                 } else {
-                    "Representa uma lente viva através da qual a sua atenção está escolhendo interpretar e organizar a realidade hoje."
+                    "Atua como um território singular na sua paisagem subjetiva, abrindo novas conexões entre o que você sente e o que você pensa."
                 }
             }
         }
+
+        return "$coreMeaning $weightQualifierPt"
     }
 
-    private fun analyzeUserDilemma(userText: String, c1: String, c2: String): String {
+    private fun analyzeDeepDialecticalDilemma(
+        userText: String,
+        dominant: String,
+        secondary: String,
+        heavyCount: Int,
+        arousal: Float,
+        valence: Float
+    ): String {
         val lower = userText.lowercase()
+        val somaticContext = if (heavyCount >= 2 || arousal > 0.65f) {
+            "Repare que você configurou esferas com peso acentuado e ritmo interno elevado (${(arousal * 100).toInt()}%), o que indica que essa questão não está apenas nas ideias, mas vibrando fisicamente no seu corpo."
+        } else {
+            "Seu estado corporal mostra espaço de sobriedade e contemplação (${(valence * 100).toInt()}% de abertura), o que permite observar essa questão sem ser engolido pela pressa."
+        }
+
         return when {
-            lower.contains("dividido") || lower.contains("dúvida") || lower.contains("escolh") ->
-                "Estar dividido não é fraqueza decisória; é o sinal saudável de que existem duas necessidades reais competindo pela sua atenção. Em vez de se cobrar uma certeza imediata sob pressão, perceba qual dos dois caminhos alivia a respiração e qual deles aperta o peito. A clareza surge do repouso, não da urgência."
-            lower.contains("projeto") || lower.contains("trabalho") || lower.contains("criar") || lower.contains("começar") ->
-                "Quando estamos diante de uma nova criação, a tensão entre **$c1** e **$c2** é o sintoma clássico de que você está pisando em território novo. A incerteza não significa incapacidade; significa apenas que a aposta é viva. Dê o próximo passo em escala pequena, sem exigir garantias totais do futuro."
-            lower.contains("ansios") || lower.contains("medo") || lower.contains("preocup") ->
-                "A ansiedade costuma ser o futuro invadindo o presente antes da hora. Olhe para a esfera de **$c1** como o seu vetor de clareza, e acolha **$c2** como uma cautela amiga, nunca como uma sentença de paralisia."
+            lower.contains("dividido") || lower.contains("dúvida") || lower.contains("escolh") || lower.contains("entre") ->
+                "Quando nos sentimos divididos, costumamos achar que uma parte de nós está errada e precisa vencer a outra. Mas na filosofia de Espinosa e na psicologia profunda, a ambivalência raramente é fraqueza: ela acontece quando **duas verdades legítimas** estão pedindo passagem ao mesmo tempo. **$dominant** aponta para aquilo que quer crescer, enquanto **$secondary** protege o que você não quer perder. $somaticContext Em vez de exigir uma resposta definitiva sob pressão hoje, permita um pequeno experimento prático que honre os dois lados sem que um precise aniquilar o outro."
+
+            lower.contains("projeto") || lower.contains("trabalho") || lower.contains("criar") || lower.contains("começar") || lower.contains("novo") ->
+                "Todo gesto de criação ou mudança real esbarra na fronteira entre a expansão (**$dominant**) e a conservação (**$secondary**). Na neurociência do processamento preditivo, o cérebro humano prefere o conhecido—mesmo quando insatisfatório—porque o conhecido exige menos gasto energético. Por isso, o frio na barriga ou a hesitação antes de avançar não são sinais de que você não é capaz; são apenas o seu sistema nervoso recalibrando o mapa diante do inédito. $somaticContext Reduza a escala do próximo passo até que ele pareça um teste curioso, e não um salto no escuro."
+
+            lower.contains("ansios") || lower.contains("medo") || lower.contains("preocup") || lower.contains("tenso") || lower.contains("cansad") ->
+                "A tensão acumulada surge quando a mente tenta resolver no plano abstrato do futuro algo que o corpo está sentindo no presente. Quando **$dominant** e **$secondary** se cruzam sob pressão, o pensamento tende a girar em círculos procurando garantias absolutas antes de descansar. $somaticContext A virada de chave aqui é inverter a ordem: primeiro oferecer segurança sensorial ao corpo (soltando a vigilância muscular), para só depois deixar que a relação entre **$dominant** e **$secondary** se decante naturalmente."
+
             else ->
-                "O que você compartilhou reflete o encontro sensível entre essas duas forças no seu momento atual. Ao desenhar essas esferas na tela, você já deu o primeiro passo: tirou a confusão do plano difuso da cabeça e transformou-a em uma paisagem observável e passível de cuidado."
+                "Aquilo que você expressou revela como **$dominant** e **$secondary** estão tecendo um diálogo silencioso nos bastidores da sua atenção. Muitas vezes, tratamos nossos estados internos como problemas a serem resolvidos rapidamente, quando na verdade eles são **paisagens a serem compreendidas**. $somaticContext Ao externalizar essas esferas na tela e dar a cada uma sua cor, seu peso e seu lugar exato no espaço, você já deixou de estar misturado à névoa do sentimento e assumiu o lugar de quem observa com lucidez e gentileza."
         }
     }
 
     /**
-     * Concrete, vivid, grounding sensory exercise tailored for somatic regulation.
+     * Concrete, 3-step neuro-sensory somatic practice tailored to the user's topology & biofeedback.
      */
-    private fun buildDynamicWebGroundedSomaticPractice(
+    private fun buildDeepSomaticPractice(
         languageCode: String,
         arousal: Float,
         valence: Float,
         focus: Float,
         concepts: List<String>,
+        topology: SpatialTopologyAnalysis,
         userPrompt: String
     ): String {
-        val primary = concepts.firstOrNull() ?: "Harmonia"
-        val secondary = concepts.getOrNull(1) ?: "Presença"
-
-        val seed = abs((concepts.joinToString() + userPrompt + (arousal * 10).toInt() + (valence * 10).toInt()).hashCode()) % 4
+        val primary = topology.dominantSphere?.name ?: concepts.firstOrNull() ?: "Harmonia"
+        val secondary = topology.closestAffinityPair?.second?.name
+            ?: concepts.getOrNull(1)
+            ?: "Presença"
 
         if (languageCode.lowercase() != "pt") {
-            return when (seed) {
-                0 -> "**Peripheral Vision & Optic Relaxation ($primary + $secondary):** Without moving your head, gently expand your field of vision to the left and right corners of the room. This immediately signals safety to your nervous system, allowing your breathing to slow down naturally."
-                1 -> "**Tactile & Jaw Decompression:** Rest both hands on your lap. As you inhale for 4 seconds, acknowledge the weight of **$primary**; as you exhale slowly for 6 seconds, consciously soften your jaw, tongue, and shoulders."
-                2 -> "**Acoustic Grounding Resonance:** Close your eyes for 20 seconds and focus entirely on the peaceful ambient sound in the app. Match your breath to the slow, warm swell of the tone."
-                else -> "**Three-Step Grounding Breath:** On your first breath, feel the firm support beneath your feet. On your second, welcome **$primary** without resistance. On your third, release all tension and feel clarity return."
-            }
+            return buildString {
+                appendLine("**3-Step Embodied Reconfiguration ($primary · $secondary):**")
+                appendLine("- **1. Optic Nerve Decompression (Peripheral Gaze):** Soften your eyes on the screen and simultaneously notice the left and right edges of your room without turning your head. Expanding peripheral vision switches off the amygdala's tunnel-vision alert.")
+                appendLine("- **2. Vagal Resonance Breath (4s / 6s):** Inhale gently through your nose for 4 seconds while welcoming **$primary**; exhale slowly through your mouth for 6 seconds while letting the weight of **$secondary** settle into the floor.")
+                appendLine("- **3. Proprioceptive Release:** Drop your shoulders two centimeters, unclench your jaw, and listen for 20 seconds to the 432Hz pentatonic harmony playing in the background.")
+            }.trim()
         }
 
-        return when (seed) {
-            0 -> "**Abertura do Campo Ocular e Relaxamento do Nervo Óptico ($primary + $secondary):** Sem virar o pescoço, suavize o olhar e perceba os cantos laterais do ambiente onde você está. A visão periférica desativa o circuito de alerta da amígdala e aciona o sistema parassimpático, permitindo que a mente processe a tensão com serenidade e amplitude."
-            1 -> "**Descompressão de Mandíbula e Ombros:** Apoie as mãos suavemente sobre as pernas. Ao inspirar pelo nariz por 4 segundos, reconheça a importância de **$primary**; ao soltar o ar pela boca lentamente por 6 segundos, solte os dentes, relaxe a língua no assoalho da boca e deixe os ombros descerem dois centímetros."
-            2 -> "**Ressonância com a Harmonia Sonora:** Feche os olhos por 25 segundos e acompanhe apenas as notas suaves e consonantes que estão tocando ao fundo. Repare como não há pressa nem atrito na harmonia musical—permita que o ritmo cardíaco se alinhe a esse compasso acolhedor."
-            else -> "**Respiração Tripla de Ancoragem Corporal:** Na primeira inspiração, sinta o apoio firme do chão ou da cadeira sob o seu corpo. Na segunda, acolha **$primary** e **$secondary** sem cobrança. Na terceira expiração longa, solte o ar como um suspiro de alívio e sinta o espaço desobstruído que se abre dentro do peito."
-        }
+        return buildString {
+            appendLine("**Prática Somática em 3 Passos ($primary ↔ $secondary):**")
+            appendLine("- **1. Descompressão do Nervo Óptico (Visão Periférica):** Olhando para o brilho suave das esferas de **$primary** e **$secondary**, amplie sua visão lateral para perceber os dois cantos da sala ao mesmo tempo, sem mover a cabeça. Na neurofisiologia, sair da visão em túnel e abrir a visão periférica desativa imediatamente o reflexo de alerta simpático.")
+            appendLine("- **2. Respiração de Tônus Vagal (Ciclo 4s / 6s):** Inspire suavemente pelo nariz contando 4 segundos, sentindo espaço se abrir no tórax; solte o ar lentamente pela boca durante 6 segundos, como se deixasse o peso acumulado das esferas escorrer para o chão.")
+            appendLine("- **3. Soltura Proprioceptiva e Escuta:** Destrave os dentes, deixe a língua repousar solta no céu da boca e solte o peso dos ombros. Feche os olhos por 20 segundos acompanhando apenas a respiração das notas pentatônicas em 432Hz que estão tocando agora.")
+        }.trim()
     }
 
     private fun normalizeOpenAiBaseUrl(raw: String): String {
