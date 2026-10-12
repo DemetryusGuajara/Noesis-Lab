@@ -61,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.ai.LocalLlmEngine
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.JournalEntryEntity
@@ -443,6 +445,24 @@ fun SystemsAndByokScreen(
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Section 3.5: Motor Neural Local (Qwen 2.5 1.5B via MediaPipe)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("local_llm_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            LocalLlmManagerCard(
+                strings = strings,
+                onDownloadClick = { /* handled inside */ },
+                onDeleteClick = { /* handled inside */ }
+            )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1200,6 +1220,281 @@ private data class SnapshotParticle(
     val posX: Float,
     val posY: Float
 )
+}
+
+/**
+ * Local LLM Manager Card - Handles Qwen 2.5 1.5B model download/management
+ */
+@Composable
+private fun LocalLlmManagerCard(
+    strings: com.example.i18n.StringsCatalog,
+) {
+    val context = LocalContext.current
+    val localLlm = remember { LocalLlmEngine(context) }
+    var state by remember { mutableStateOf(LocalLlmEngine.State.NotStarted) }
+    var showDownloadConfirm by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Observe state changes
+    LaunchedEffect(localLlm) {
+        localLlm.onStateChange = { newState ->
+            state = newState
+        }
+        // Check initial state
+        if (localLlm.isModelDownloaded()) {
+            state = LocalLlmEngine.State.Ready
+        }
+    }
+
+    val isDownloading = when (state) {
+        is LocalLlmEngine.State.Downloading -> true
+        else -> false
+    }
+    val isInitializing = when (state) {
+        is LocalLlmEngine.State.Initializing -> true
+        else -> false
+    }
+    val isReady = when (state) {
+        LocalLlmEngine.State.Ready -> true
+        else -> false
+    }
+    val errorMessage = when (state) {
+        is LocalLlmEngine.State.Error -> state.message
+        else -> null
+    }
+    val downloadProgress = when (state) {
+        is LocalLlmEngine.State.Downloading -> state.progress
+        is LocalLlmEngine.State.Initializing -> state.progress
+        else -> 0f
+    }
+    val downloadedMb = when (state) {
+        is LocalLlmEngine.State.Downloading -> state.downloadedMb
+        else -> 0L
+    }
+    val totalMb = when (state) {
+        is LocalLlmEngine.State.Downloading -> state.totalMb
+        else -> 0L
+    }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.CloudDownload,
+                contentDescription = "Motor Neural Local",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Motor Neural Local (Qwen 2.5 1.5B)",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "~900 MB • Roda 100% offline • Aceleração GPU/NPU • Multilíngue nativo (PT, EN, ES, FR)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Status Display
+        AnimatedVisibility(visible = errorMessage != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+            ) {
+                Text(
+                    text = "⚠ $errorMessage",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = isReady) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "✅ Modelo pronto (${localLlm.getModelSizeMb()} MB)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            text = "Motor neural local ativo — usado automaticamente quando não há provedor BYOK",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.testTag("delete_local_model_button"),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Remover modelo",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Remover",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(visible = isDownloading || isInitializing) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                LinearProgressIndicator(
+                    progress = downloadProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isDownloading) {
+                        "Baixando modelo... ${(downloadProgress * 100).toInt()}% (${downloadedMb} / ${totalMb} MB)"
+                    } else {
+                        "Inicializando motor neural... ${(downloadProgress * 100).toInt()}%"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = !isReady && !isDownloading && !isInitializing && errorMessage == null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "O modelo neural local será baixado na primeira vez que você gerar uma reflexão (sem provedor BYOK).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "💡 Dica: Baixe agora via Wi-Fi para evitar uso de dados móveis depois.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        // Action Buttons
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (!isReady && !isDownloading && !isInitializing) {
+                Button(
+                    onClick = { showDownloadConfirm = true },
+                    enabled = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("download_local_model_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDownload,
+                        contentDescription = "Baixar modelo",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Baixar Modelo (~900 MB)", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+
+        // Download Confirmation Dialog
+        if (showDownloadConfirm) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDownloadConfirm = false },
+                title = { Text("Baixar Modelo Neural Local") },
+                text = {
+                    Text(
+                        "O modelo Qwen 2.5 1.5B (~900 MB) será baixado e armazenado no armazenamento interno do app. Requer conexão estável (Wi-Fi recomendado).\n\nApós o download, o motor neural roda 100% offline."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDownloadConfirm = false
+                            coroutineScope.launch {
+                                localLlm.initialize()
+                            }
+                        }
+                    ) { Text("Baixar Agora") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDownloadConfirm = false }) { Text("Cancelar") }
+                }
+            )
+        }
+
+        // Delete Confirmation Dialog
+        if (showDeleteConfirm) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Remover Modelo Neural") },
+                text = {
+                    Text(
+                        "O modelo local (~${localLlm.getModelSizeMb()} MB) será removido do armazenamento. Você poderá baixá-lo novamente quando quiser."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteConfirm = false
+                            localLlm.deleteModel()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) { Text("Remover") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
+                }
+            )
+        }
+    }
+}
 
 private data class SnapshotZone(
     val customTitle: String,

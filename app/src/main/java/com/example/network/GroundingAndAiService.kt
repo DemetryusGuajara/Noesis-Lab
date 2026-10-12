@@ -1,5 +1,6 @@
 package com.example.network
 
+import com.example.ai.LocalLlmEngine
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -71,7 +72,7 @@ data class OrchestratedSimulationResult(
     val grounding: GroundingBundle
 )
 
-class GroundingAndAiService {
+class GroundingAndAiService(private val context: Context) {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(14, TimeUnit.SECONDS)
         .readTimeout(22, TimeUnit.SECONDS)
@@ -83,6 +84,15 @@ class GroundingAndAiService {
         .readTimeout(8, TimeUnit.SECONDS)
         .writeTimeout(6, TimeUnit.SECONDS)
         .build()
+
+    // Local LLM Engine (Qwen 2.5 1.5B via MediaPipe) - lazy init
+    private var localLlmEngine: LocalLlmEngine? = null
+    private fun getLocalLlm(): LocalLlmEngine {
+        if (localLlmEngine == null) {
+            localLlmEngine = LocalLlmEngine(context)
+        }
+        return localLlmEngine!!
+    }
 
     /**
      * Computes the exact spatial and relational geometry of the user's spheres on the canvas:
@@ -648,25 +658,26 @@ class GroundingAndAiService {
             }
         }
 
-        // Tier 2: Built-in Neural LLM (Gemini 3.5 Flash)
-        val geminiKey = com.example.BuildConfig.GEMINI_API_KEY
-        if (geminiKey.isNotBlank() && geminiKey != "MY_GEMINI_API_KEY") {
-            onStageProgress(
-                when (languageCode.lowercase()) {
-                    "en" -> "3/3 · Neural synthesis via embedded Gemini 3.5 Flash engine..."
-                    "es" -> "3/3 · Síntesis neural mediante motor Gemini 3.5 Flash..."
-                    "fr" -> "3/3 · Synthèse neuronale via le moteur Gemini 3.5 Flash..."
-                    else -> "3/3 · Gerando síntese neural profunda via Gemini 3.5 Flash..."
-                }
-            )
-            val neuralText = callGeminiGenerateContent(
-                apiKey = geminiKey,
-                systemInstruction = masterSystemPrompt,
-                userMessage = userMessage
-            )
+        // Tier 2: Local LLM (Qwen 2.5 1.5B via MediaPipe) - runs 100% offline
+        val localLlm = getLocalLlm()
+        onStageProgress(
+            when (languageCode.lowercase()) {
+                "en" -> "3/3 · Generating deep reflection via local neural engine..."
+                "es" -> "3/3 · Generando reflexión profunda con motor neural local..."
+                "fr" -> "3/3 · Génération de réflexion profonde via moteur neural local..."
+                else -> "3/3 · Gerando reflexão profunda via motor neural local..."
+            }
+        )
 
-            if (neuralText != null) {
-                val parts = neuralText.split("---SOMATIC---")
+        val initResult = localLlm.initialize()
+        if (initResult.isSuccess) {
+            val localText = localLlm.generate(
+                systemPrompt = masterSystemPrompt,
+                userMessage = userMessage
+            ).getOrNull()
+
+            if (localText != null && localText.length > 30) {
+                val parts = localText.split("---SOMATIC---")
                 val mainNarrative = parts[0].trim()
                 val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
                     parts[1].trim()
@@ -684,10 +695,13 @@ class GroundingAndAiService {
                 return@withContext OrchestratedSimulationResult(
                     narrativeMarkdown = mainNarrative,
                     somaticShiftSuggestion = somatic,
-                    providerLabel = "Rede Neural Nativa (Gemini 3.5 Flash)",
+                    providerLabel = "Motor Neural Local (Qwen 2.5 1.5B)",
                     grounding = grounding
                 )
             }
+        } else {
+            // Log the error but continue to fallback
+            Log.w("GroundingAndAiService", "Local LLM init failed: ${initResult.exceptionOrNull()?.message}")
         }
 
         // Tier 3: Autonomous On-Device Dialectical Phenomenological Engine
@@ -787,60 +801,6 @@ class GroundingAndAiService {
                     ?.optJSONObject("message")
                     ?.optString("content")
                 content?.trim()?.takeIf { it.length > 25 }
-            }
-        }.getOrNull()
-    }
-
-    private fun callGeminiGenerateContent(
-        apiKey: String,
-        systemInstruction: String,
-        userMessage: String
-    ): String? {
-        return runCatching {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey.trim()}"
-            val payload = JSONObject().apply {
-                put("system_instruction", JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("text", systemInstruction)
-                        })
-                    })
-                })
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", userMessage)
-                            })
-                        })
-                    })
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.74)
-                    put("maxOutputTokens", 2048)
-                })
-            }
-
-            val req = Request.Builder()
-                .url(url)
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@runCatching null
-                val bodyStr = resp.body?.string() ?: return@runCatching null
-                val root = JSONObject(bodyStr)
-                val candidates = root.optJSONArray("candidates") ?: return@runCatching null
-                val firstCandidate = candidates.optJSONObject(0) ?: return@runCatching null
-                val content = firstCandidate.optJSONObject("content") ?: return@runCatching null
-                val parts = content.optJSONArray("parts") ?: return@runCatching null
-                val sb = StringBuilder()
-                for (i in 0 until parts.length()) {
-                    val p = parts.optJSONObject(i)
-                    p?.optString("text")?.let { sb.append(it) }
-                }
-                sb.toString().trim().takeIf { it.length > 30 }
             }
         }.getOrNull()
     }

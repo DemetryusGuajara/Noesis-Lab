@@ -80,7 +80,7 @@ data class NoesisUiState(
 class NoesisViewModel(application: Application) : AndroidViewModel(application) {
     private val database = NoesisDatabase.getInstance(application)
     private val repository = NoesisRepository(application, database.noesisDao())
-    private val networkService = GroundingAndAiService()
+    private val networkService = GroundingAndAiService(application.applicationContext)
     val soundEngine = MysticSoundEngine(application.applicationContext)
 
     private val _currentTab = MutableStateFlow(NoesisTab.FIELD)
