@@ -20,6 +20,7 @@ import com.example.i18n.StringsCatalog
 import com.example.network.GroundingAndAiService
 import com.example.network.GroundingBundle
 import com.example.network.ProviderVerificationReport
+import com.example.network.SphereSpatialDescriptor
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +61,7 @@ data class NoesisUiState(
     val diagnosedZones: List<DiagnosedZoneState> = emptyList(),
     val selectedZoneId: String? = "zone_time",
     val logs: List<SimulationLogEntity> = emptyList(),
+    val currentSessionReading: SimulationLogEntity? = null,
     val journalEntries: List<JournalEntryEntity> = emptyList(),
     val providers: List<AiProviderEntity> = emptyList(),
     val currentDraftPrompt: String = "",
@@ -93,6 +95,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private val _isVerifyingProvider = MutableStateFlow(false)
     private val _lastVerificationReport = MutableStateFlow<ProviderVerificationReport?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
+    private val _currentSessionReading = MutableStateFlow<SimulationLogEntity?>(null)
 
     private var lastTouchTimestamp = 0L
     private val recentTouchIntervalsMs = ArrayDeque<Long>()
@@ -122,9 +125,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private val extraUiFlow = combine(
         _simulationProgressText,
         _openedJournalEntry,
-        _currentDraftPrompt
-    ) { prog, journal, draft ->
-        Triple(prog, journal, draft)
+        _currentDraftPrompt,
+        _currentSessionReading
+    ) { prog, journal, draft, sessionReading ->
+        Quad(prog, journal, draft, sessionReading)
     }
 
     val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow, extraUiFlow) { core, trans, extraUi ->
@@ -180,6 +184,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             diagnosedZones = diagnosedZones,
             selectedZoneId = trans.third ?: diagnosedZones.firstOrNull()?.zone?.zoneId,
             logs = logs,
+            currentSessionReading = extraUi.fourth,
             journalEntries = journalEntries,
             providers = providers,
             currentDraftPrompt = extraUi.third,
@@ -480,6 +485,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         _currentTab.value = NoesisTab.ORACLE
         _isSimulating.value = true
+        _currentSessionReading.value = null
         _simulationProgressText.value = state.strings.synthesizingMessage
 
         viewModelScope.launch {
@@ -494,6 +500,16 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     "${formatConceptTitleCase(it.name)} ($tempDesc, $weightDesc)"
                 }
 
+                val spatialSpheres = state.particles.map {
+                    SphereSpatialDescriptor(
+                        name = formatConceptTitleCase(it.name),
+                        importanceMass = it.mass,
+                        weightHeaviness = it.charge.coerceIn(0f, 1f),
+                        posX = it.posX,
+                        posY = it.posY
+                    )
+                }
+
                 val activeProvider = state.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
                 val effectiveLang = AppLanguage.resolveEffectiveLanguage(state.preferences.language)
 
@@ -501,6 +517,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     userPrompt = promptToUse,
                     particlesSummary = particlesSummary,
                     conceptNames = conceptNames,
+                    spatialSpheres = spatialSpheres,
                     arousal = state.preferences.bioArousal,
                     valence = state.preferences.bioValence,
                     focus = state.preferences.bioFocus,
@@ -517,21 +534,22 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
                 _latestGrounding.value = result.grounding
 
-                repository.addSimulationLog(
-                    SimulationLogEntity(
-                        userPrompt = promptToUse,
-                        activeConceptsCsv = conceptNames.joinToString(", "),
-                        biofeedbackArousal = state.preferences.bioArousal,
-                        biofeedbackValence = state.preferences.bioValence,
-                        biofeedbackFocus = state.preferences.bioFocus,
-                        wikiSourcesJson = "[]",
-                        academicSourcesJson = "[]",
-                        narrativeResponse = result.narrativeMarkdown,
-                        somaticSuggestion = result.somaticShiftSuggestion,
-                        providerUsed = result.providerLabel,
-                        languageCode = effectiveLang.code
-                    )
+                val sessionLogEntity = SimulationLogEntity(
+                    userPrompt = promptToUse,
+                    activeConceptsCsv = conceptNames.joinToString(", "),
+                    biofeedbackArousal = state.preferences.bioArousal,
+                    biofeedbackValence = state.preferences.bioValence,
+                    biofeedbackFocus = state.preferences.bioFocus,
+                    wikiSourcesJson = "[]",
+                    academicSourcesJson = "[]",
+                    narrativeResponse = result.narrativeMarkdown,
+                    somaticSuggestion = result.somaticShiftSuggestion,
+                    providerUsed = result.providerLabel,
+                    languageCode = effectiveLang.code
                 )
+
+                _currentSessionReading.value = sessionLogEntity
+                repository.addSimulationLog(sessionLogEntity)
             } finally {
                 _isSimulating.value = false
             }
@@ -572,7 +590,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }.toString()
 
-            val latestLog = state.logs.firstOrNull()
+            val latestLog = state.currentSessionReading
             val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
                 .ifBlank { "Estado Mental" }
 

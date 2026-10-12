@@ -355,8 +355,9 @@ fun NarrativeOracleScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Clean, Properly Rendered Markdown Reflections History (Item 11)
-        uiState.logs.forEach { log ->
+        // Unique Session Reading Only (No past readings interference)
+        val currentReading = uiState.currentSessionReading
+        if (currentReading != null) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -368,14 +369,14 @@ fun NarrativeOracleScreen(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(
-                        text = "Esferas combinadas: ${log.activeConceptsCsv}",
+                        text = "${strings.activeParticlesTitle}: ${currentReading.activeConceptsCsv}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "“${log.userPrompt}”",
+                        text = "“${currentReading.userPrompt}”",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -385,7 +386,7 @@ fun NarrativeOracleScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     FormattedMarkdownText(
-                        markdown = log.narrativeResponse,
+                        markdown = currentReading.narrativeResponse,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -406,12 +407,28 @@ fun NarrativeOracleScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             FormattedMarkdownText(
-                                markdown = log.somaticSuggestion,
+                                markdown = currentReading.somaticSuggestion,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
                 }
+            }
+        } else if (!uiState.isSimulating) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 14.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                Text(
+                    text = strings.oracleUniqueSessionNotice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
     }
