@@ -23,9 +23,11 @@ object LlmPrefs {
     const val KEY_SLOT = "model_slot"
 
     const val FULL_URL =
-        "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
-    const val FULL_FILE = "qwen25-15b-q8.task"
+        "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_seq128_q8_ekv1280.task"
+    const val FULL_FILE = "qwen25-15b-q8-seq128.task"
     const val FULL_MIN_BYTES = 500_000_000L
+    // Arquivo legado (variante GPU multi-prefill): removido automaticamente.
+    const val LEGACY_FULL_FILE = "qwen25-15b-q8.task"
 
     const val LITE_URL =
         "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"

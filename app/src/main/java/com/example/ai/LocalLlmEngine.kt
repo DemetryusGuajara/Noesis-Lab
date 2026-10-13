@@ -176,6 +176,12 @@ class LocalLlmEngine(private val context: Context) {
             }
             if (dest.exists()) dest.delete()
             tmp.renameTo(dest)
+            // Limpa variante legada (GPU) para não duplicar ~1,6 GB em disco.
+            try {
+                val legacy = File(dest.parent, LlmPrefs.LEGACY_FULL_FILE)
+                if (legacy.exists() && legacy.name != dest.name) legacy.delete()
+            } catch (_: Exception) {
+            }
         }
     }
 
