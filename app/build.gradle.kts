@@ -14,6 +14,7 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.noesislab.qxmnvz"
+    manifestPlaceholders["appName"] = "@string/app_name"
     minSdk = 24
     targetSdk = 36
     // Play Store exige versionCode crescente: usa o número do build no CI.
@@ -68,11 +69,11 @@ android {
       signingConfig = signingConfigs.getByName("debugConfig")
       buildConfigField("boolean", "ENABLE_FILE_LOGGING", "false")
     }
-    create("log") {
+    create("dev") {
       initWith(getByName("debug"))
-      applicationIdSuffix = ".log"
-      versionNameSuffix = "-log"
-      resValue("string", "app_name", "Noesis Lab LOG")
+      applicationIdSuffix = ".dev"
+      versionNameSuffix = "-dev"
+      manifestPlaceholders["appName"] = "Noesis Lab DEV"
       buildConfigField("boolean", "ENABLE_FILE_LOGGING", "true")
     }
   }

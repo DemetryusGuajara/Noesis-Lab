@@ -20,5 +20,6 @@
   "homepage": "https://github.com/DemetryusGuajara/Noesis-Lab#readme",
   "dependencies": {
     "sharp": "^0.35.5"
-  }
+  },
+  "devDependencies": {}
 }
