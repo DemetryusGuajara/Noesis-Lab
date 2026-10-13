@@ -16,8 +16,10 @@ android {
     applicationId = "com.aistudio.noesislab.qxmnvz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Play Store exige versionCode crescente: usa o número do build no CI.
+    val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    versionCode = runNumber ?: 1
+    versionName = if (runNumber != null) "1.0.$runNumber" else "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
