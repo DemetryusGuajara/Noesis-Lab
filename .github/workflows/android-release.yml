@@ -51,6 +51,15 @@ jobs:
             cp .env.example .env
           fi
 
+      - name: Setup fixed signing key (stable signature across builds)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > fixed-test.keystore
+          echo "FIXED_KEYSTORE_PATH=$PWD/fixed-test.keystore" >> $GITHUB_ENV
+          echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+
       - name: Build Debug + Log APKs
         run: gradle assembleDebug assembleLog --no-daemon
 

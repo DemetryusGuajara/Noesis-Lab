@@ -16,6 +16,11 @@
 local.properties
 .env
 debug.keystore
+# Chave fixa de testes (NUNCA commitar: senhas em keystore-passwords.txt)
+noesis-test.jks
+fixed-test.keystore
+keystore-passwords.txt
+*.jks
 # Arquivo interno de reporte de erros (nao commitar)
 /erro.md
 erro.md
