@@ -61,19 +61,12 @@ android {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
-      buildConfigField("boolean", "ENABLE_FILE_LOGGING", "false")
+      buildConfigField("boolean", "ENABLE_FILE_LOGGING", "true")
     }
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
-      buildConfigField("boolean", "ENABLE_FILE_LOGGING", "false")
-    }
-    create("dev") {
-      initWith(getByName("debug"))
-      applicationIdSuffix = ".dev"
-      versionNameSuffix = "-dev"
-      manifestPlaceholders["appName"] = "Noesis Lab DEV"
       buildConfigField("boolean", "ENABLE_FILE_LOGGING", "true")
     }
   }

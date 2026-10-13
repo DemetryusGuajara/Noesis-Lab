@@ -69,13 +69,12 @@ jobs:
             echo "No fixed signing key configured; using debug.keystore fallback."
           fi
 
-      - name: Build Debug + Dev APKs + Release AAB
-        run: gradle assembleDebug assembleDev bundleRelease --no-daemon
+      - name: Build Debug APK + Release AAB
+        run: gradle assembleDebug bundleRelease --no-daemon
 
       - name: Rename APKs for Release
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk NoesisLab-v1.0.${{ github.run_number }}.apk
-          cp app/build/outputs/apk/dev/app-dev.apk NoesisLab-v1.0.${{ github.run_number }}-dev.apk
           cp app/build/outputs/bundle/release/app-release.aab NoesisLab-v1.0.${{ github.run_number }}-release.aab
 
       - name: Upload APKs as Workflow Artifacts
@@ -84,7 +83,6 @@ jobs:
           name: NoesisLab-APKs
           path: |
             NoesisLab-v1.0.${{ github.run_number }}.apk
-            NoesisLab-v1.0.${{ github.run_number }}-dev.apk
             NoesisLab-v1.0.${{ github.run_number }}-release.aab
 
       - name: Create GitHub Release and Attach APKs
@@ -95,12 +93,10 @@ jobs:
           body: |
             ### Noesis Lab — Build Automático (#${{ github.run_number }})
             - **Commit:** `${{ github.sha }}`
-            - **APK pronto para instalação:** Baixe o arquivo `NoesisLab-v1.0.${{ github.run_number }}.apk` abaixo em **Assets**.
-            - **Versão DEV (diagnóstico):** `NoesisLab-v1.0.${{ github.run_number }}-dev.apk` — instala lado a lado (ícone "Noesis Lab DEV"), grava tudo em `Android/data/<pacote>/files/logs/` e copia o relatório de crash para `Downloads/NoesisLab/`. Use-a para reportar travamentos.
+            - **APK oficial (com diagnóstico):** Baixe o arquivo `NoesisLab-v1.0.${{ github.run_number }}.apk` abaixo em **Assets**. Em Ajustes → Diagnóstico e logs você pode exportar o log após qualquer travamento.
             - **Pacote da Play Store:** `NoesisLab-v1.0.${{ github.run_number }}-release.aab` — assinado com a chave própria, `versionCode` crescente. Quando criar a conta de desenvolvedor, suba este AAB (mesmo pacote e mesma chave, sempre).
           files: |
             NoesisLab-v1.0.${{ github.run_number }}.apk
-            NoesisLab-v1.0.${{ github.run_number }}-dev.apk
             NoesisLab-v1.0.${{ github.run_number }}-release.aab
           draft: false
           prerelease: false

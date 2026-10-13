@@ -473,22 +473,20 @@ fun SystemsAndByokScreen(
             LocalLlmManagerCard(strings = strings)
         }
 
-        if (com.example.BuildConfig.ENABLE_FILE_LOGGING) {
-            Spacer(modifier = Modifier.height(14.dp))
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("dev_diagnostics_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                DevDiagnosticsCard(
-                    providerSummaries = uiState.providers.map { p ->
-                        "${p.name} (${p.selectedModel.ifBlank { "sem modelo" }})" + if (p.isActive) " [ativo]" else ""
-                    }
-                )
-            }
+        Spacer(modifier = Modifier.height(14.dp))
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("dev_diagnostics_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            DevDiagnosticsCard(
+                providerSummaries = uiState.providers.map { p ->
+                    "${p.name} (${p.selectedModel.ifBlank { "sem modelo" }})" + if (p.isActive) " [ativo]" else ""
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1529,9 +1527,8 @@ private fun LocalLlmManagerCard(
 }
 
 /**
- * DEV-only diagnostics (BuildConfig.ENABLE_FILE_LOGGING): constant-watch status
- * plus one-tap log export. After a crash, reopen the app, export here and save
- * the document anywhere.
+ * Diagnostics card: constant-watch status plus one-tap log export.
+ * After a crash, reopen the app, export here and save the document anywhere.
  */
 @Composable
 private fun DevDiagnosticsCard(providerSummaries: List<String>) {
@@ -1570,13 +1567,13 @@ private fun DevDiagnosticsCard(providerSummaries: List<String>) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Default.BugReport,
-                contentDescription = "Diagnóstico DEV",
+                contentDescription = "Diagnóstico e logs",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Diagnóstico DEV",
+                text = "Diagnóstico e logs",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
