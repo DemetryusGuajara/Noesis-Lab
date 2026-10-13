@@ -1359,6 +1359,11 @@ private fun LocalLlmManagerCard(
                 onClick = { slot = LlmPrefs.SLOT_ULTRA },
                 label = { Text("135M emergência") }
             )
+            FilterChip(
+                selected = slot == LlmPrefs.SLOT_GEMMA,
+                onClick = { slot = LlmPrefs.SLOT_GEMMA },
+                label = { Text("Gemma 3 1B") }
+            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))

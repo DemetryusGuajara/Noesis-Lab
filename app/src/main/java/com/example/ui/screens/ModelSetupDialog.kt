@@ -69,6 +69,7 @@ fun ModelSetupDialog(
             when (LlmPrefs.getSlot(context)) {
                 LlmPrefs.SLOT_LITE -> "lite"
                 LlmPrefs.SLOT_ULTRA -> "ultra"
+                LlmPrefs.SLOT_GEMMA -> "gemma"
                 else -> "full"
             }
         )
@@ -153,6 +154,7 @@ fun ModelSetupDialog(
             LlmPrefs.setSlot(context, when (modelChoice) {
                 "lite" -> LlmPrefs.SLOT_LITE
                 "ultra" -> LlmPrefs.SLOT_ULTRA
+                "gemma" -> LlmPrefs.SLOT_GEMMA
                 else -> LlmPrefs.SLOT_FULL
             })
             // Recria o engine para que o slot escolhido valha imediatamente.
@@ -239,6 +241,12 @@ fun ModelSetupDialog(
                         desc = strings.modelChoiceUltraDesc,
                         selected = modelChoice == "ultra",
                         onSelect = { modelChoice = "ultra" }
+                    )
+                    ModelOptionRow(
+                        title = strings.modelChoiceGemma,
+                        desc = strings.modelChoiceGemmaDesc,
+                        selected = modelChoice == "gemma",
+                        onSelect = { modelChoice = "gemma" }
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {

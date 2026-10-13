@@ -20,6 +20,7 @@ object LlmPrefs {
     const val SLOT_FULL = "full"
     const val SLOT_LITE = "lite"
     const val SLOT_ULTRA = "ultra"
+    const val SLOT_GEMMA = "gemma"
     const val KEY_SLOT = "model_slot"
 
     const val FULL_URL =
@@ -38,6 +39,13 @@ object LlmPrefs {
         "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task"
     const val ULTRA_FILE = "smollm-135m-q8.task"
     const val ULTRA_MIN_BYTES = 50_000_000L
+
+    // Espelho comunitário do Gemma3-1B q4 (o oficial é gated). Verificado:
+    // gated:false, Apache 2.0, arquivo presente. ~555 MB, PT testado em aparelho.
+    const val GEMMA_URL =
+        "https://huggingface.co/AfiOne/gemma3-1b-it-int4.task/resolve/main/gemma3-1b-it-int4.task"
+    const val GEMMA_FILE = "gemma3-1b-q4.task"
+    const val GEMMA_MIN_BYTES = 300_000_000L
 
     fun getSlot(context: Context): String =
         prefs(context).getString(KEY_SLOT, SLOT_FULL) ?: SLOT_FULL

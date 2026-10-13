@@ -59,24 +59,28 @@ class LocalLlmEngine(private val context: Context) {
     private fun slotUrl(): String = when (slot()) {
         LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_URL
         LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_URL
+        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_URL
         else -> LlmPrefs.FULL_URL
     }
 
     private fun slotFileName(): String = when (slot()) {
         LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_FILE
         LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_FILE
+        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_FILE
         else -> LlmPrefs.FULL_FILE
     }
 
     private fun slotMinBytes(): Long = when (slot()) {
         LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_MIN_BYTES
         LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_MIN_BYTES
+        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_MIN_BYTES
         else -> LlmPrefs.FULL_MIN_BYTES
     }
 
     fun slotLabel(): String = when (slot()) {
         LlmPrefs.SLOT_LITE -> "Qwen 2.5 0.5B"
         LlmPrefs.SLOT_ULTRA -> "SmolLM 135M"
+        LlmPrefs.SLOT_GEMMA -> "Gemma 3 1B"
         else -> "Qwen 2.5 1.5B"
     }
 
@@ -249,8 +253,14 @@ class LocalLlmEngine(private val context: Context) {
     }
 
     private fun buildPrompt(system: String, user: String): String {
-        return "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" +
-            user + "<|im_end|>\n<|im_start|>assistant\n"
+        // Gemma IT usa turnos start_of_turn (sem role de sistema: dobra
+        // as instruções para dentro do turno do usuário).
+        return if (slot() == LlmPrefs.SLOT_GEMMA) {
+            "<start_of_turn>user\n" + system + "\n\n" + user + "<end_of_turn>\n<start_of_turn>model\n"
+        } else {
+            "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" +
+                user + "<|im_end|>\n<|im_start|>assistant\n"
+        }
     }
 
     /** Verifica se o modelo do slot atual está presente e válido. */
