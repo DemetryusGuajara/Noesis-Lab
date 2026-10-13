@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
@@ -94,7 +96,10 @@ import com.example.i18n.AppLanguage
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
+import com.example.util.AppLog
+import com.example.util.LogCollector
 import com.example.viewmodel.NoesisUiState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -465,6 +470,24 @@ fun SystemsAndByokScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             LocalLlmManagerCard(strings = strings)
+        }
+
+        if (com.example.BuildConfig.ENABLE_FILE_LOGGING) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dev_diagnostics_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                DevDiagnosticsCard(
+                    providerSummaries = uiState.providers.map { p ->
+                        "${p.name} (${p.selectedModel.ifBlank { "sem modelo" }})" + if (p.isActive) " [ativo]" else ""
+                    }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1497,6 +1520,182 @@ private fun LocalLlmManagerCard(
             )
         }
     }
+}
+
+/**
+ * DEV-only diagnostics (BuildConfig.ENABLE_FILE_LOGGING): constant-watch status
+ * plus one-tap log export. After a crash, reopen the app, export here and save
+ * the document anywhere.
+ */
+@Composable
+private fun DevDiagnosticsCard(providerSummaries: List<String>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableStateOf(0) }
+    var status by remember { mutableStateOf("") }
+
+    val sessionFile = remember(tick) { LogCollector.sessionLogFile(context) }
+    val sessionKb = remember(tick) { if (sessionFile.exists()) sessionFile.length() / 1024 else 0L }
+    val ringLines = remember(tick) { AppLog.snapshot().size }
+    val crashes = remember(tick) {
+        LogCollector.logsDir(context)
+            .listFiles { f -> f.name.startsWith("noesis-crash-") && f.name.endsWith(".txt") }
+            ?.sortedByDescending { it.lastModified() } ?: emptyList()
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            status = "exportando..."
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    writeDiagnosticsReport(context, uri, providerSummaries)
+                    "exportado ✅"
+                }.getOrElse { e -> "falha: ${e.message}" }
+            }
+            status = result
+            tick++
+        }
+    }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.BugReport,
+                contentDescription = "Diagnóstico DEV",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Diagnóstico DEV",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Watch constante: anel ${ringLines} linhas · sessão ${sessionKb} KB · ${crashes.size} crash(es). Após um crash, reabra e exporte.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (crashes.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            crashes.take(3).forEach { c ->
+                Text(
+                    text = "💥 ${c.name}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+        if (status.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = { exportLauncher.launch("noesis-log.txt") },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("export_log_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Exportar log")
+            }
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                LogCollector.sessionLogFile(context).delete()
+                                LogCollector.logsDir(context)
+                                    .listFiles { f -> f.name.startsWith("noesis-crash-") }
+                                    ?.forEach { it.delete() }
+                            }
+                        }
+                        status = "logs limpos"
+                        tick++
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Limpar")
+            }
+        }
+    }
+}
+
+private fun devAppVersion(context: android.content.Context): String {
+    return try {
+        @Suppress("DEPRECATION")
+        val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+        "${pi.versionName} (${pi.versionCode})"
+    } catch (_: Exception) {
+        "unknown"
+    }
+}
+
+private fun devSafeRead(f: java.io.File): String {
+    return try {
+        f.readText()
+    } catch (_: Exception) {
+        "(ilegível)"
+    }
+}
+
+private fun devTailOf(f: java.io.File, maxLines: Int): String {
+    return try {
+        if (!f.exists()) return "(sem sessão)"
+        f.readLines().takeLast(maxLines).joinToString("\n")
+    } catch (_: Exception) {
+        "(ilegível)"
+    }
+}
+
+private fun writeDiagnosticsReport(
+    context: android.content.Context,
+    uri: Uri,
+    providerSummaries: List<String>
+) {
+    val sb = StringBuilder()
+    val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+    sb.appendLine("=== Noesis Lab — relatório de diagnóstico ===")
+    sb.appendLine("gerado em: $ts")
+    sb.appendLine("app: ${devAppVersion(context)}")
+    sb.appendLine("device: ${Build.BRAND} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
+    sb.appendLine("slot=${LlmPrefs.getSlot(context)} storage=${LlmPrefs.getStorage(context)}")
+    sb.appendLine("provedores: " + if (providerSummaries.isEmpty()) "(nenhum)" else providerSummaries.joinToString(" | "))
+    sb.appendLine()
+    sb.appendLine("=== anel AppLog (${AppLog.snapshot().size} linhas) ===")
+    AppLog.snapshot().forEach { sb.appendLine(it) }
+    sb.appendLine()
+    val dir = LogCollector.logsDir(context)
+    val crashFiles = dir.listFiles { f -> f.name.startsWith("noesis-crash-") && f.name.endsWith(".txt") }
+        ?.sortedByDescending { it.lastModified() } ?: emptyList()
+    sb.appendLine("=== crash reports (${crashFiles.size}) ===")
+    crashFiles.forEach { f ->
+        sb.appendLine("--- ${f.name} ---")
+        sb.appendLine(devSafeRead(f))
+    }
+    sb.appendLine("=== sessão (últimas 600 linhas) ===")
+    sb.appendLine(devTailOf(LogCollector.sessionLogFile(context), 600))
+    sb.appendLine("=== logcat fresco (processo + tags, até 2500) ===")
+    AppLog.dumpFilteredLogcat(2500).forEach { sb.appendLine(it) }
+    context.contentResolver.openOutputStream(uri)?.use { out ->
+        out.write(sb.toString().toByteArray())
+    } ?: throw IllegalStateException("não foi possível abrir o destino")
 }
 
 private data class SnapshotZone(

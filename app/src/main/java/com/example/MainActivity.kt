@@ -84,6 +84,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.util.AppLog.i("lifecycle", "MainActivity onCreate")
         enableEdgeToEdge()
         setContent {
             val viewModel: NoesisViewModel = viewModel()

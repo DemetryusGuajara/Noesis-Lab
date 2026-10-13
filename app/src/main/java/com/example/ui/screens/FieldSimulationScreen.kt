@@ -139,10 +139,13 @@ fun FieldSimulationScreen(
 
     val textMeasurer = rememberTextMeasurer()
 
+    val moodScore = uiState.meanHeaviness * 0.55f +
+        uiState.preferences.bioArousal * 0.30f +
+        (1f - uiState.phaseCoherence) * 0.15f
     val musicalMoodText = when {
-        uiState.meanHeaviness < 0.30f -> strings.soundMoodCalm
-        uiState.meanHeaviness < 0.50f -> strings.soundMoodDreamy
-        uiState.meanHeaviness < 0.70f -> strings.soundMoodVibrant
+        moodScore < 0.32f -> strings.soundMoodCalm
+        moodScore < 0.52f -> strings.soundMoodDreamy
+        moodScore < 0.72f -> strings.soundMoodVibrant
         else -> strings.soundMoodTense
     }
 

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.example.ai.LlmPrefs
 import com.example.ai.LocalLlmEngine
 import com.example.i18n.StringsCatalog
+import com.example.util.AppLog
 import kotlinx.coroutines.launch
 
 /**
@@ -127,10 +128,12 @@ fun ModelSetupDialog(
                         postProgress(p, done / (1024 * 1024), total / (1024 * 1024), "importando")
                     }
                     if (res.isSuccess) {
+                        AppLog.i("llm", "dialog import ok")
                         phase = 2
                         statusText = "ok"
                     } else {
                         errorText = res.exceptionOrNull()?.message
+                        AppLog.e("llm", "dialog import failed: $errorText")
                     }
                 }
             } catch (e: Exception) {
@@ -168,10 +171,12 @@ fun ModelSetupDialog(
             }
             val res = engine.initialize()
             if (res.isSuccess) {
+                AppLog.i("llm", "dialog download ok")
                 phase = 2
                 statusText = "ok"
             } else if (errorText == null) {
                 errorText = res.exceptionOrNull()?.message
+                AppLog.e("llm", "dialog download failed: $errorText")
             }
         }
     }

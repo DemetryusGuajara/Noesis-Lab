@@ -2,6 +2,7 @@ package com.example.ai
 
 import android.content.Context
 import android.util.Log
+import com.example.util.AppLog
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -181,6 +182,7 @@ class LocalLlmEngine(private val context: Context) {
     /** Inicializa o modelo (baixa o slot escolhido se necessário, carrega na memória). */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            AppLog.i("llm", "init slot=${slotLabel()} storage=${getStorageLabel()}")
             emit(State.Initializing(0f))
             val modelFile = getModelFile()
             if (!modelFile.exists() || modelFile.length() < slotMinBytes()) {
@@ -199,6 +201,7 @@ class LocalLlmEngine(private val context: Context) {
             llmInference = LlmInference.createFromOptions(appContext, options)
 
             emit(State.Ready)
+            AppLog.i("llm", "ready ${getModelSizeMb()} MB")
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao inicializar LLM local", e)
@@ -208,6 +211,7 @@ class LocalLlmEngine(private val context: Context) {
                 else -> "Erro ao inicializar: ${e.message ?: e::class.simpleName}"
             }
             emit(State.Error(errorMsg))
+            AppLog.e("llm", "init failed: $errorMsg")
             Result.failure(e)
         }
     }
@@ -230,6 +234,7 @@ class LocalLlmEngine(private val context: Context) {
             Result.success(finalText)
         } catch (e: Exception) {
             Log.e(TAG, "Erro na geração", e)
+            AppLog.e("llm", "generate failed: ${e.message}")
             Result.failure(e)
         }
     }

@@ -3,6 +3,7 @@ package com.example.network
 import android.content.Context
 import android.util.Log
 import com.example.ai.LocalLlmEngine
+import com.example.util.AppLog
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -688,6 +689,7 @@ class GroundingAndAiService(private val context: Context) {
                         seed = System.currentTimeMillis()
                     )
                 }
+                AppLog.i("sim", "tier=BYOK ok label='${activeProviderName ?: "BYOK"}'")
                 return@withContext OrchestratedSimulationResult(
                     narrativeMarkdown = mainNarrative,
                     somaticShiftSuggestion = somatic,
@@ -702,6 +704,7 @@ class GroundingAndAiService(private val context: Context) {
         // baixa sozinho na hora da leitura (download só com consentimento:
         // diálogo inicial ou botão em Ajustes).
         val localLlm = getLocalLlm()
+        AppLog.i("sim", "tier1 miss (byok=$hasActiveByok) trying on-device slot downloaded=${localLlm.isModelDownloaded()}")
         if (!hasActiveByok && localLlm.isModelDownloaded()) {
             onStageProgress(
                 when (languageCode.lowercase()) {
@@ -736,6 +739,7 @@ class GroundingAndAiService(private val context: Context) {
                             seed = System.currentTimeMillis()
                         )
                     }
+                    AppLog.i("sim", "tier=on-device ok slot='${localLlm.slotLabel()}'")
                     return@withContext OrchestratedSimulationResult(
                         narrativeMarkdown = mainNarrative,
                         somaticShiftSuggestion = somatic,
@@ -782,6 +786,7 @@ class GroundingAndAiService(private val context: Context) {
             seed = seed
         )
 
+        AppLog.i("sim", "tier=internal-fallback wiki=${grounding.wikiSources.size} acad=${grounding.academicSources.size}")
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,

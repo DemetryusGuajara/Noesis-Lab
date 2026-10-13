@@ -23,6 +23,7 @@ import com.example.network.ProviderVerificationReport
 import com.example.network.SphereSpatialDescriptor
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.formatConceptTitleCase
+import com.example.util.AppLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,7 +72,7 @@ data class NoesisUiState(
     val isVerifyingProvider: Boolean = false,
     val lastVerificationReport: ProviderVerificationReport? = null,
     val statusBannerMessage: String? = null,
-    val phaseCoherence: Float = 0.78f,
+    val phaseCoherence: Float = 0.55f,
     val entropyIndex: Float = 0.34f,
     val meanFrequencyHz: Float = 320f,
     val meanHeaviness: Float = 0.40f
@@ -167,11 +168,36 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             particles.map { it.charge.coerceIn(0f, 1f) }.average().toFloat()
         } else 0.35f
 
-        val entropy = (avgHeaviness * 0.65f + prefs.bioArousal * 0.35f).coerceIn(0.08f, 0.96f)
-        val coherence = (1.0f - avgHeaviness * 0.55f + prefs.bioFocus * 0.20f).coerceIn(0.18f, 0.98f)
+        // Real field metrics: harmony from spatial dispersion + sensation spread
+        // + weight, intensity from accumulated weight + pace + dispersion.
+        // Empty field converges to a neutral middle instead of fake highs.
+        val dispersionNorm = if (particles.size >= 2) {
+            var sum = 0f
+            var pairs = 0
+            for (i in particles.indices) {
+                for (j in i + 1 until particles.size) {
+                    sum += hypot(
+                        particles[j].posX - particles[i].posX,
+                        particles[j].posY - particles[i].posY
+                    )
+                    pairs++
+                }
+            }
+            (sum / pairs / 1.16f).coerceIn(0f, 1f)
+        } else 0.45f
+        val heavSpread = if (particles.isNotEmpty()) {
+            (particles.map { abs(it.charge.coerceIn(0f, 1f) - avgHeaviness) }.average().toFloat() * 2f)
+                .coerceIn(0f, 1f)
+        } else 0.3f
+
+        val entropy = (avgHeaviness * 0.55f + prefs.bioArousal * 0.30f + dispersionNorm * 0.15f).coerceIn(0.08f, 0.96f)
+        val coherence = (0.72f - dispersionNorm * 0.38f - heavSpread * 0.25f - avgHeaviness * 0.15f + prefs.bioFocus * 0.10f).coerceIn(0.12f, 0.97f)
 
         // Diagnose Tab 2 Architectural Spaces automatically from Tab 1 spheres (Item 8)
-        val diagnosedZones = diagnoseArchitecturalSpacesFromField(baseZones, particles, strings.languageCode)
+        val diagnosedZones = diagnoseArchitecturalSpacesFromField(
+            baseZones, particles, strings.languageCode,
+            arousal = prefs.bioArousal, valence = prefs.bioValence, focus = prefs.bioFocus
+        )
 
         NoesisUiState(
             currentTab = trans.first,
@@ -220,7 +246,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private fun diagnoseArchitecturalSpacesFromField(
         zones: List<ArchitecturalZoneEntity>,
         particles: List<ConceptParticleEntity>,
-        langCode: String
+        langCode: String,
+        arousal: Float,
+        valence: Float,
+        focus: Float
     ): List<DiagnosedZoneState> {
         if (particles.isEmpty()) {
             return zones.map { z ->
@@ -255,10 +284,11 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 topInfluencers.map { ((it.mass - 0.4f) / 2.1f).coerceIn(0f, 1f) }.average().toFloat()
             } else 0.5f
 
-            // Pressure is driven by the heaviness and high importance of nearby/resonant spheres
-            val diagnosedPressure = (weightedHeaviness * 0.68f + weightedImportance * 0.25f).coerceIn(0.10f, 0.94f)
-            // Clarity/Openness is high when spheres are light (low charge) and harmoniously spaced
-            val diagnosedClarity = ((1.0f - weightedHeaviness * 0.62f) + (1.0f - diagnosedPressure) * 0.28f).coerceIn(0.18f, 0.96f)
+            // Pressure rises with nearby heaviness, importance AND bodily pace;
+            // clarity rises with lightness + emotional openness, falls with pressure.
+            // Typical mixed states land mid-scale; extremes reach both ends.
+            val diagnosedPressure = (weightedHeaviness * 0.55f + weightedImportance * 0.20f + arousal * 0.25f).coerceIn(0.10f, 0.95f)
+            val diagnosedClarity = (0.62f - weightedHeaviness * 0.45f - diagnosedPressure * 0.25f + valence * 0.30f + focus * 0.08f).coerceIn(0.12f, 0.96f)
 
             val empiricalText = buildEmpiricalRoomDiagnosis(
                 zone = zone,
@@ -300,17 +330,26 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         langCode: String
     ): String {
         val conceptsStr = if (influencers.isNotEmpty()) influencers.joinToString(" e ") else "suas esferas atuais"
-        val stateDesc = when {
-            pressurePct >= 65 -> "sob alta pressão e exigência ($pressurePct%)"
-            pressurePct <= 35 -> "leve, arejado e descomprimido ($pressurePct% de pressão)"
-            else -> "em equilíbrio dinâmico ($pressurePct% de pressão e $clarityPct% de clareza)"
-        }
+        val isClear = clarityPct >= 60
+        val isPressured = pressurePct >= 55
 
         if (langCode.lowercase() != "pt") {
-            return "Empirically, **$conceptsStr** in Tab 1 are directly shaping **${zone.customTitle}**, leaving this mental space at **$clarityPct% clarity** and **$pressurePct% pressure**. In your current psychic structure, this means this area is acting as a primary resonator for how you process $conceptsStr today."
+            val reading = when {
+                isClear && !isPressured -> "an open sanctuary ($clarityPct% clarity, only $pressurePct% pressure): **$conceptsStr** flow freely here, and this room returns energy instead of consuming it. Let this area set the pace for the rest of the day."
+                isClear && isPressured -> "a tense lucidity ($clarityPct% clarity under $pressurePct% pressure): you see **$conceptsStr** clearly, but carrying them costs effort. Clarity without rest becomes vigilance — schedule deliberate decompression."
+                !isClear && !isPressured -> "a soft fog ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** rest here unresolved but unhurried. Not everything needs deciphering today; some rooms heal by being left alone."
+                else -> "a storm cell ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** churn here. Reduce one demand, name one need out loud, and let the pressure drop before deciding anything."
+            }
+            return "Empirically, the position and weight of **$conceptsStr** shape **${zone.customTitle}** into $reading"
         }
 
-        return "Pela posição e intensidade de **$conceptsStr** na Aba 1, o ambiente **${zone.customTitle}** encontra-se hoje **$stateDesc**, com **$clarityPct% de abertura perceptual**. Empiricamente na sua estrutura psíquica atual, isso indica que a forma como você está vivenciando **$conceptsStr** repercute diretamente nesta área (${zone.conceptDomain.lowercase()}), ${if (pressurePct >= 60) "pedindo mais respiro e menos autocobrança" else "funcionando como um ponto de apoio seguro e criativo para o seu dia"}."
+        val reading = when {
+            isClear && !isPressured -> "um santuário aberto ($clarityPct% de abertura, só $pressurePct% de pressão): **$conceptsStr** circulam livres por aqui, e este ambiente devolve energia em vez de consumi-la. Deixe este cômodo ditar o ritmo do resto do dia."
+            isClear && isPressured -> "uma lucidez tensa ($clarityPct% de clareza sob $pressurePct% de pressão): você enxerga **$conceptsStr** com nitidez, mas sustentá-los custa esforço. Clareza sem descanso vira vigilância — programe descompressão deliberada."
+            !isClear && !isPressured -> "uma névoa mansa ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** repousam aqui sem resolução e sem pressa. Nem tudo precisa ser decifrado hoje; alguns cômodos se curam sendo deixados em paz."
+            else -> "uma zona de tempestade ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** se agitam aqui. Reduza uma exigência, nomeie uma necessidade em voz alta e deixe a pressão baixar antes de decidir qualquer coisa."
+        }
+        return "Pela posição e pelo peso de **$conceptsStr** na Aba 1, o ambiente **${zone.customTitle}** (${zone.conceptDomain.lowercase()}) configura-se hoje como $reading"
     }
 
     fun toggleHelpModal(show: Boolean) {
@@ -487,6 +526,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         _isSimulating.value = true
         _currentSessionReading.value = null
         _simulationProgressText.value = state.strings.synthesizingMessage
+        AppLog.i("sim", "start concepts=${conceptNames.size} promptChars=${promptToUse.length}")
 
         viewModelScope.launch {
             try {
@@ -550,6 +590,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
                 _currentSessionReading.value = sessionLogEntity
                 repository.addSimulationLog(sessionLogEntity)
+                AppLog.i("sim", "done via '${result.providerLabel}' narrativeChars=${result.narrativeMarkdown.length}")
+            } catch (e: Exception) {
+                AppLog.e("sim", "simulation failed: ${e.message}")
+                throw e
             } finally {
                 _isSimulating.value = false
             }
