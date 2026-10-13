@@ -1262,6 +1262,7 @@ private fun LocalLlmManagerCard(
 
     var storage by remember { mutableStateOf(LlmPrefs.getStorage(context)) }
     var slot by remember { mutableStateOf(LlmPrefs.getSlot(context)) }
+    var backend by remember { mutableStateOf(LlmPrefs.getBackend(context)) }
     val hasSd = remember { localLlm.hasSdCard() }
 
     LaunchedEffect(localLlm) {
@@ -1325,14 +1326,14 @@ private fun LocalLlmManagerCard(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Modelo Neural no Aparelho (Qwen .task)",
+                text = "Modelo Neural no Aparelho (LiteRT-LM)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Completo Qwen 2.5 1.5B (~1,6 GB), leve Qwen 2.5 0.5B (~550 MB) ou emergência SmolLM 135M (~150 MB). Roda 100% offline. Use Wi-Fi.",
+            text = "Vários modelos podem ficar baixados juntos; escolha o ativo. Roda 100% offline. Use Wi-Fi.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1343,24 +1344,47 @@ private fun LocalLlmManagerCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(
-                selected = slot == LlmPrefs.SLOT_FULL,
-                onClick = { slot = LlmPrefs.SLOT_FULL },
-                label = { Text("1.5B completo") }
+                selected = slot == LlmPrefs.SLOT_360,
+                onClick = { slot = LlmPrefs.SLOT_360 },
+                label = { Text("360M") }
             )
             FilterChip(
-                selected = slot == LlmPrefs.SLOT_LITE,
-                onClick = { slot = LlmPrefs.SLOT_LITE },
-                label = { Text("0.5B leve") }
+                selected = slot == LlmPrefs.SLOT_135,
+                onClick = { slot = LlmPrefs.SLOT_135 },
+                label = { Text("135M") }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Motor:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             FilterChip(
-                selected = slot == LlmPrefs.SLOT_ULTRA,
-                onClick = { slot = LlmPrefs.SLOT_ULTRA },
-                label = { Text("135M emergência") }
+                selected = backend == LlmPrefs.BACKEND_CPU,
+                onClick = {
+                    backend = LlmPrefs.BACKEND_CPU
+                    LlmPrefs.setBackend(context, backend)
+                    localLlm.release()
+                    state = LocalLlmEngine.State.NotStarted
+                },
+                label = { Text("CPU") }
             )
             FilterChip(
-                selected = slot == LlmPrefs.SLOT_GEMMA,
-                onClick = { slot = LlmPrefs.SLOT_GEMMA },
-                label = { Text("Gemma 3 1B") }
+                selected = backend == LlmPrefs.BACKEND_GPU,
+                onClick = {
+                    backend = LlmPrefs.BACKEND_GPU
+                    LlmPrefs.setBackend(context, backend)
+                    localLlm.release()
+                    state = LocalLlmEngine.State.NotStarted
+                },
+                label = { Text("GPU") }
             )
         }
 

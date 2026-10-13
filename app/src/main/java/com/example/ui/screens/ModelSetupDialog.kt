@@ -66,12 +66,7 @@ fun ModelSetupDialog(
     var storage by remember { mutableStateOf(LlmPrefs.getStorage(context)) }
     var modelChoice by remember {
         mutableStateOf(
-            when (LlmPrefs.getSlot(context)) {
-                LlmPrefs.SLOT_LITE -> "lite"
-                LlmPrefs.SLOT_ULTRA -> "ultra"
-                LlmPrefs.SLOT_GEMMA -> "gemma"
-                else -> "full"
-            }
+            if (LlmPrefs.getSlot(context) == LlmPrefs.SLOT_135) "lite" else "full"
         )
     }
     var dontShow by remember { mutableStateOf(false) }
@@ -151,12 +146,7 @@ fun ModelSetupDialog(
             statusText = "conectando..."
             lastPct = -1
             LlmPrefs.setStorage(context, storage)
-            LlmPrefs.setSlot(context, when (modelChoice) {
-                "lite" -> LlmPrefs.SLOT_LITE
-                "ultra" -> LlmPrefs.SLOT_ULTRA
-                "gemma" -> LlmPrefs.SLOT_GEMMA
-                else -> LlmPrefs.SLOT_FULL
-            })
+            LlmPrefs.setSlot(context, if (modelChoice == "lite") LlmPrefs.SLOT_135 else LlmPrefs.SLOT_360)
             // Recria o engine para que o slot escolhido valha imediatamente.
             val engine = LocalLlmEngine(context)
             engine.onStateChange = { s ->
@@ -235,18 +225,6 @@ fun ModelSetupDialog(
                         desc = strings.modelChoiceLiteDesc,
                         selected = modelChoice == "lite",
                         onSelect = { modelChoice = "lite" }
-                    )
-                    ModelOptionRow(
-                        title = strings.modelChoiceUltra,
-                        desc = strings.modelChoiceUltraDesc,
-                        selected = modelChoice == "ultra",
-                        onSelect = { modelChoice = "ultra" }
-                    )
-                    ModelOptionRow(
-                        title = strings.modelChoiceGemma,
-                        desc = strings.modelChoiceGemmaDesc,
-                        selected = modelChoice == "gemma",
-                        onSelect = { modelChoice = "gemma" }
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {

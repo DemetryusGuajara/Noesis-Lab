@@ -5,54 +5,46 @@ import android.content.SharedPreferences
 
 /**
  * Preferências do motor neural (SharedPreferences dedicado — sem migração de banco).
- * Centraliza: escolha de armazenamento, host/modelo Ollama e flag do aviso inicial.
+ * Motor LiteRT-LM (sucessor do MediaPipe): arquivos .litertlm, backend CPU/GPU
+ * selecionável em runtime, vários modelos simultâneos (cada um no seu arquivo).
  */
 object LlmPrefs {
     private const val FILE = "noesis_llm_prefs"
     const val KEY_STORAGE = "storage" // "internal" | "sd"
+    const val KEY_SLOT = "model_slot" // slot ativo
+    const val KEY_BACKEND = "backend" // "cpu" | "gpu"
     const val KEY_NOTICE = "model_notice_dismissed"
 
     const val STORAGE_INTERNAL = "internal"
     const val STORAGE_SD = "sd"
 
-    // Slots do modelo no aparelho (.task MediaPipe, litert-community, Apache 2.0).
-    // URLs verificadas: download anônimo liberado (gated:false).
-    const val SLOT_FULL = "full"
-    const val SLOT_LITE = "lite"
-    const val SLOT_ULTRA = "ultra"
-    const val SLOT_GEMMA = "gemma"
-    const val KEY_SLOT = "model_slot"
+    const val SLOT_360 = "smol360"
+    const val SLOT_135 = "smol135"
 
-    const val FULL_URL =
-        "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_seq128_q8_ekv1280.task"
-    const val FULL_FILE = "qwen25-15b-q8-seq128.task"
-    const val FULL_MIN_BYTES = 500_000_000L
-    // Arquivo legado (variante GPU multi-prefill): removido automaticamente.
-    const val LEGACY_FULL_FILE = "qwen25-15b-q8.task"
+    const val BACKEND_CPU = "cpu"
+    const val BACKEND_GPU = "gpu"
 
-    const val LITE_URL =
-        "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task"
-    const val LITE_FILE = "qwen25-05b-q8.task"
-    const val LITE_MIN_BYTES = 150_000_000L
+    // Catálogo verificado (litert-community, Apache 2.0, download anônimo OK).
+    const val SMOL360_URL =
+        "https://huggingface.co/litert-community/SmolLM2-360M-Instruct/resolve/main/SmolLM2_360M_instruct.litertlm"
+    const val SMOL360_FILE = "smolm2-360m.litertlm"
+    const val SMOL360_MIN_BYTES = 150_000_000L
 
-    const val ULTRA_URL =
-        "https://huggingface.co/litert-community/SmolLM-135M-Instruct/resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task"
-    const val ULTRA_FILE = "smollm-135m-q8.task"
-    const val ULTRA_MIN_BYTES = 50_000_000L
+    const val SMOL135_URL =
+        "https://huggingface.co/litert-community/SmolLM2-135M-Instruct/resolve/main/SmolLM2_135M_Instruct.litertlm"
+    const val SMOL135_FILE = "smolm2-135m.litertlm"
+    const val SMOL135_MIN_BYTES = 50_000_000L
 
-    // Espelho comunitário do Gemma3-1B q4 (o oficial é gated). Verificado:
-    // gated:false, Apache 2.0, arquivo presente. ~555 MB, PT testado em aparelho.
-    const val GEMMA_URL =
-        "https://huggingface.co/AfiOne/gemma3-1b-it-int4.task/resolve/main/gemma3-1b-it-int4.task"
-    const val GEMMA_FILE = "gemma3-1b-q4.task"
-    const val GEMMA_MIN_BYTES = 300_000_000L
-
-    fun getSlot(context: Context): String =
-        prefs(context).getString(KEY_SLOT, SLOT_FULL) ?: SLOT_FULL
-
-    fun setSlot(context: Context, value: String) {
-        prefs(context).edit().putString(KEY_SLOT, value).apply()
-    }
+    // Arquivos legados da era MediaPipe (.task): removidos automaticamente
+    // na primeira inicialização (podem ocupar GBs parados).
+    val LEGACY_TASK_FILES = listOf(
+        "qwen25-15b-q8.task",
+        "qwen25-15b-q8-seq128.task",
+        "qwen25-05b-q8.task",
+        "smollm-135m-q8.task",
+        "gemma3-1b-q4.task",
+        "model.task"
+    )
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -62,6 +54,20 @@ object LlmPrefs {
 
     fun setStorage(context: Context, value: String) {
         prefs(context).edit().putString(KEY_STORAGE, value).apply()
+    }
+
+    fun getSlot(context: Context): String =
+        prefs(context).getString(KEY_SLOT, SLOT_360) ?: SLOT_360
+
+    fun setSlot(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_SLOT, value).apply()
+    }
+
+    fun getBackend(context: Context): String =
+        prefs(context).getString(KEY_BACKEND, BACKEND_CPU) ?: BACKEND_CPU
+
+    fun setBackend(context: Context, value: String) {
+        prefs(context).edit().putString(KEY_BACKEND, value).apply()
     }
 
     fun isNoticeDismissed(context: Context): Boolean =

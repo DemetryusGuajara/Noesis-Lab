@@ -142,8 +142,9 @@ dependencies {
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   
-  // MediaPipe LLM Inference (Local LLM - Qwen 2.5 1.5B)
-  implementation("com.google.mediapipe:tasks-genai:0.10.27")
+  // LiteRT-LM on-device (sucessor do MediaPipe LLM Inference).
+  // Coordenadas verificadas no fonte oficial do Google AI Edge Gallery.
+  implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
   
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

@@ -3,7 +3,12 @@ package com.example.ai
 import android.content.Context
 import android.util.Log
 import com.example.util.AppLog
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -14,16 +19,18 @@ import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 /**
- * Motor neural no aparelho via MediaPipe LLM Inference (.task).
+ * Motor neural no aparelho via LiteRT-LM (sucessor do MediaPipe LLM Inference).
+ * Padrão de uso copiado do app oficial Google AI Edge Gallery:
+ * Engine(EngineConfig) -> initialize() -> createConversation() -> sendMessage().
  *
- * Dois slots verificados (litert-community, Apache 2.0, download anônimo OK):
- * - FULL: Qwen2.5-1.5B-Instruct q8 (~1,6 GB) — aparelhos potentes.
- * - LITE: Qwen2.5-0.5B-Instruct q8 (~550 MB) — aparelhos com menos RAM.
- * Destino: armazenamento interno ou cartão SD (app-specific dir).
+ * - Arquivos .litertlm (vários podem coexistir; o slot ativo é escolhido pelo usuário).
+ * - Backend CPU/GPU selecionável em runtime (padrão CPU = seguro em Mali antigas).
+ * - SmolLM2 usa ChatML; o runtime aplica o template a partir de texto simples.
  */
 class LocalLlmEngine(private val context: Context) {
 
-    private var llmInference: LlmInference? = null
+    private var engine: Engine? = null
+    private var conversation: Conversation? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -57,32 +64,27 @@ class LocalLlmEngine(private val context: Context) {
     private fun slot(): String = LlmPrefs.getSlot(appContext)
 
     private fun slotUrl(): String = when (slot()) {
-        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_URL
-        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_URL
-        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_URL
-        else -> LlmPrefs.FULL_URL
+        LlmPrefs.SLOT_135 -> LlmPrefs.SMOL135_URL
+        else -> LlmPrefs.SMOL360_URL
     }
 
     private fun slotFileName(): String = when (slot()) {
-        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_FILE
-        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_FILE
-        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_FILE
-        else -> LlmPrefs.FULL_FILE
+        LlmPrefs.SLOT_135 -> LlmPrefs.SMOL135_FILE
+        else -> LlmPrefs.SMOL360_FILE
     }
 
     private fun slotMinBytes(): Long = when (slot()) {
-        LlmPrefs.SLOT_LITE -> LlmPrefs.LITE_MIN_BYTES
-        LlmPrefs.SLOT_ULTRA -> LlmPrefs.ULTRA_MIN_BYTES
-        LlmPrefs.SLOT_GEMMA -> LlmPrefs.GEMMA_MIN_BYTES
-        else -> LlmPrefs.FULL_MIN_BYTES
+        LlmPrefs.SLOT_135 -> LlmPrefs.SMOL135_MIN_BYTES
+        else -> LlmPrefs.SMOL360_MIN_BYTES
     }
 
     fun slotLabel(): String = when (slot()) {
-        LlmPrefs.SLOT_LITE -> "Qwen 2.5 0.5B"
-        LlmPrefs.SLOT_ULTRA -> "SmolLM 135M"
-        LlmPrefs.SLOT_GEMMA -> "Gemma 3 1B"
-        else -> "Qwen 2.5 1.5B"
+        LlmPrefs.SLOT_135 -> "SmolLM2 135M"
+        else -> "SmolLM2 360M"
     }
+
+    fun backendLabel(): String =
+        if (LlmPrefs.getBackend(appContext) == LlmPrefs.BACKEND_GPU) "GPU" else "CPU"
 
     /** Há cartão SD com diretório app-specific disponível? */
     fun hasSdCard(): Boolean {
@@ -92,6 +94,12 @@ class LocalLlmEngine(private val context: Context) {
 
     fun getStorageLabel(): String =
         if (LlmPrefs.getStorage(appContext) == LlmPrefs.STORAGE_SD && hasSdCard()) "SD" else "Interno"
+
+    private fun modelDirs(): List<File> {
+        val internal = File(appContext.filesDir, "models")
+        val sd = appContext.getExternalFilesDirs(null).getOrNull(1)?.let { File(it, "models") }
+        return listOfNotNull(internal, sd)
+    }
 
     private fun getModelDir(): File {
         val useSd = LlmPrefs.getStorage(appContext) == LlmPrefs.STORAGE_SD && hasSdCard()
@@ -105,8 +113,39 @@ class LocalLlmEngine(private val context: Context) {
 
     private fun getModelFile(): File = File(getModelDir(), slotFileName())
 
+    /** Lista todos os modelos .litertlm presentes (qualquer slot/storage). */
+    fun listDownloadedModels(): List<String> {
+        return try {
+            modelDirs().flatMap { dir ->
+                dir.listFiles { f -> f.name.endsWith(".litertlm") }?.map { it.name } ?: emptyList()
+            }.distinct()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Remove arquivos legados da era MediaPipe (.task) que só ocupam espaço. */
+    fun cleanupLegacyTaskFiles(): Long {
+        var freed = 0L
+        try {
+            modelDirs().forEach { dir ->
+                LlmPrefs.LEGACY_TASK_FILES.forEach { name ->
+                    val f = File(dir, name)
+                    if (f.exists()) {
+                        freed += f.length()
+                        f.delete()
+                    }
+                }
+            }
+            if (freed > 0) AppLog.i("llm", "legacy cleanup freed ${freed / (1024 * 1024)} MB")
+        } catch (e: Exception) {
+            Log.w(TAG, "legacy cleanup failed", e)
+        }
+        return freed
+    }
+
     /**
-     * Importa um .task a partir de um stream (seletor de arquivos),
+     * Importa um .litertlm a partir de um stream (seletor de arquivos),
      * copiando para o armazenamento escolhido, com progresso.
      */
     suspend fun importFromStream(
@@ -180,21 +219,16 @@ class LocalLlmEngine(private val context: Context) {
             }
             if (dest.exists()) dest.delete()
             tmp.renameTo(dest)
-            // Limpa variante legada (GPU) para não duplicar ~1,6 GB em disco.
-            try {
-                val legacy = File(dest.parent, LlmPrefs.LEGACY_FULL_FILE)
-                if (legacy.exists() && legacy.name != dest.name) legacy.delete()
-            } catch (_: Exception) {
-            }
         }
     }
 
     /** Inicializa o modelo (baixa o slot escolhido se necessário, carrega na memória). */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            AppLog.i("llm", "init slot=${slotLabel()} storage=${getStorageLabel()}")
+            AppLog.i("llm", "init slot=${slotLabel()} backend=${backendLabel()} storage=${getStorageLabel()}")
             AppLog.markGenStart("init slot=${slotLabel()}")
             emit(State.Initializing(0f))
+            cleanupLegacyTaskFiles()
             val modelFile = getModelFile()
             if (!modelFile.exists() || modelFile.length() < slotMinBytes()) {
                 emit(State.Downloading(0f, 0, -1L))
@@ -202,17 +236,30 @@ class LocalLlmEngine(private val context: Context) {
             }
             emit(State.Initializing(0.5f))
 
-            // API oficial MediaPipe. maxTokens=1024: os modelos ekv1280 têm
-            // contexto de 1280 tokens — acima disso o processo morre em OOM
-            // nativo (sem catch possível). Temperatura = default da lib.
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(1024)
-                .build()
-            llmInference = LlmInference.createFromOptions(appContext, options)
+            releaseQuiet()
+            val backend = if (LlmPrefs.getBackend(appContext) == LlmPrefs.BACKEND_GPU) {
+                Backend.GPU()
+            } else {
+                Backend.CPU()
+            }
+            val eng = Engine(
+                EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = backend,
+                    maxNumTokens = 2048
+                )
+            )
+            eng.initialize()
+            val conv = eng.createConversation(
+                ConversationConfig(
+                    samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
+                )
+            )
+            engine = eng
+            conversation = conv
 
             emit(State.Ready)
-            AppLog.i("llm", "ready ${getModelSizeMb()} MB")
+            AppLog.i("llm", "ready ${getModelSizeMb()} MB backend=${backendLabel()}")
             AppLog.clearGenMarker()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -225,26 +272,27 @@ class LocalLlmEngine(private val context: Context) {
             emit(State.Error(errorMsg))
             AppLog.e("llm", "init failed: $errorMsg")
             AppLog.clearGenMarker()
+            releaseQuiet()
             Result.failure(e)
         }
     }
 
-    /** Gera resposta (ChatML do Qwen Instruct). */
+    /** Gera resposta (texto simples; o runtime aplica o template de conversa). */
     suspend fun generate(
         systemPrompt: String,
         userMessage: String,
         onPartial: (String) -> Unit = {}
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            ensureInitialized()
+            val conv = conversation
+                ?: throw IllegalStateException("LLM não inicializado. Chame initialize() primeiro.")
             val fullPrompt = buildPrompt(systemPrompt, userMessage)
-            val generated = llmInference?.generateResponse(fullPrompt) ?: ""
+            val generated = conv.sendMessage(fullPrompt).toString().trim()
             onPartial(generated)
-            val finalText = generated.trim()
-            if (finalText.length < 20) {
-                return@withContext Result.failure(IllegalStateException("Resposta muito curta: $finalText"))
+            if (generated.length < 20) {
+                return@withContext Result.failure(IllegalStateException("Resposta muito curta: $generated"))
             }
-            Result.success(finalText)
+            Result.success(generated)
         } catch (e: Exception) {
             Log.e(TAG, "Erro na geração", e)
             AppLog.e("llm", "generate failed: ${e.message}")
@@ -253,14 +301,8 @@ class LocalLlmEngine(private val context: Context) {
     }
 
     private fun buildPrompt(system: String, user: String): String {
-        // Gemma IT usa turnos start_of_turn (sem role de sistema: dobra
-        // as instruções para dentro do turno do usuário).
-        return if (slot() == LlmPrefs.SLOT_GEMMA) {
-            "<start_of_turn>user\n" + system + "\n\n" + user + "<end_of_turn>\n<start_of_turn>model\n"
-        } else {
-            "<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n" +
-                user + "<|im_end|>\n<|im_start|>assistant\n"
-        }
+        return "Instruções do sistema:\n" + system +
+            "\n\nUsuário:\n" + user + "\n\nResposta:"
     }
 
     /** Verifica se o modelo do slot atual está presente e válido. */
@@ -282,14 +324,20 @@ class LocalLlmEngine(private val context: Context) {
 
     /** Libera recursos do modelo da memória. */
     fun release() {
-        llmInference?.close()
-        llmInference = null
+        releaseQuiet()
         emit(State.NotStarted)
     }
 
-    private fun ensureInitialized() {
-        if (llmInference == null) {
-            throw IllegalStateException("LLM não inicializado. Chame initialize() primeiro.")
+    private fun releaseQuiet() {
+        try {
+            conversation?.close()
+        } catch (_: Exception) {
         }
+        try {
+            engine?.close()
+        } catch (_: Exception) {
+        }
+        conversation = null
+        engine = null
     }
 }
