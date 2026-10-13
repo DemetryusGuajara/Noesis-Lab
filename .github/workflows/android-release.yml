@@ -52,14 +52,22 @@ jobs:
           fi
 
       - name: Setup fixed signing key (stable signature across builds)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS_V: ${{ secrets.KEY_ALIAS }}
+          KEY_PW: ${{ secrets.KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > fixed-test.keystore
-          echo "FIXED_KEYSTORE_PATH=$PWD/fixed-test.keystore" >> $GITHUB_ENV
-          echo "KEYSTORE_PATH=$PWD/fixed-test.keystore" >> $GITHUB_ENV
-          echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > fixed-test.keystore
+            echo "FIXED_KEYSTORE_PATH=$PWD/fixed-test.keystore" >> $GITHUB_ENV
+            echo "KEYSTORE_PATH=$PWD/fixed-test.keystore" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=$STORE_PW" >> $GITHUB_ENV
+            echo "KEY_ALIAS=$KEY_ALIAS_V" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KEY_PW" >> $GITHUB_ENV
+          else
+            echo "No fixed signing key configured; using debug.keystore fallback."
+          fi
 
       - name: Build Debug + Dev APKs + Release AAB
         run: gradle assembleDebug assembleDev bundleRelease --no-daemon
