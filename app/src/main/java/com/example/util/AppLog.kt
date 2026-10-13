@@ -15,6 +15,7 @@ import java.io.File
 object AppLog {
     private const val TAG = "NoesisApp"
     private const val MAX_RING = 800
+    private const val GEN_MARKER = "gen-marker.txt"
 
     private val lock = Any()
     private val ring = ArrayDeque<String>(MAX_RING + 1)
@@ -47,9 +48,9 @@ object AppLog {
         }
         try {
             when (level) {
-                "E" -> Log.e(tag, msg)
-                "W" -> Log.w(tag, msg)
-                else -> Log.i(tag, msg)
+                "E" -> Log.e(TAG, "$level/$tag: $msg")
+                "W" -> Log.w(TAG, "$level/$tag: $msg")
+                else -> Log.i(TAG, "$level/$tag: $msg")
             }
         } catch (_: Exception) {
         }
@@ -75,6 +76,57 @@ object AppLog {
     fun e(tag: String, msg: String) = record("E", tag, msg)
 
     fun snapshot(): List<String> = synchronized(lock) { ring.toList() }
+
+    /**
+     * Native-death watchdog: call markGenStart() right before risky native work
+     * (model init / generate) and clearGenMarker() right after it returns.
+     * A native SIGSEGV/OOM kills the process with no Java exception, so an
+     * un-cleared marker found later PROVES where the previous process died.
+     */
+    fun genMarkerFile(): File? {
+        val ctx = appContext ?: return null
+        return try {
+            File(LogCollector.logsDir(ctx), GEN_MARKER)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun markGenStart(detail: String) {
+        try {
+            genMarkerFile()?.writeText("${System.currentTimeMillis()}|$detail")
+        } catch (_: Exception) {
+        }
+    }
+
+    fun clearGenMarker() {
+        try {
+            genMarkerFile()?.delete()
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Returns the death detail when a fresh un-cleared marker exists
+     * (previous process died mid-generate/init), null otherwise.
+     * Stale markers (> maxAgeMs) are discarded silently.
+     */
+    fun checkGenMarker(maxAgeMs: Long = 15 * 60 * 1000, consume: Boolean = true): String? {
+        return try {
+            val f = genMarkerFile() ?: return null
+            if (!f.exists()) return null
+            val raw = f.readText().trim()
+            val ts = raw.substringBefore("|").toLongOrNull()
+            if (ts == null || System.currentTimeMillis() - ts > maxAgeMs) {
+                f.delete()
+                return null
+            }
+            if (consume) f.delete()
+            raw.substringAfter("|", raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /** Fresh `logcat -d` dump filtered to this process + our tags (no Context needed). */
     fun dumpFilteredLogcat(maxLines: Int = 2500): List<String> {

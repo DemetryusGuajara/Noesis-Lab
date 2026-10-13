@@ -183,6 +183,7 @@ class LocalLlmEngine(private val context: Context) {
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             AppLog.i("llm", "init slot=${slotLabel()} storage=${getStorageLabel()}")
+            AppLog.markGenStart("init slot=${slotLabel()}")
             emit(State.Initializing(0f))
             val modelFile = getModelFile()
             if (!modelFile.exists() || modelFile.length() < slotMinBytes()) {
@@ -202,6 +203,7 @@ class LocalLlmEngine(private val context: Context) {
 
             emit(State.Ready)
             AppLog.i("llm", "ready ${getModelSizeMb()} MB")
+            AppLog.clearGenMarker()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Falha ao inicializar LLM local", e)
@@ -212,6 +214,7 @@ class LocalLlmEngine(private val context: Context) {
             }
             emit(State.Error(errorMsg))
             AppLog.e("llm", "init failed: $errorMsg")
+            AppLog.clearGenMarker()
             Result.failure(e)
         }
     }

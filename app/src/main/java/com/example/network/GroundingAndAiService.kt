@@ -705,7 +705,11 @@ class GroundingAndAiService(private val context: Context) {
         // diálogo inicial ou botão em Ajustes).
         val localLlm = getLocalLlm()
         AppLog.i("sim", "tier1 miss (byok=$hasActiveByok) trying on-device slot downloaded=${localLlm.isModelDownloaded()}")
-        if (!hasActiveByok && localLlm.isModelDownloaded()) {
+        val watchdogDeath = AppLog.checkGenMarker()
+        if (watchdogDeath != null) {
+            AppLog.w("sim", "skipping on-device this session, previous native death ($watchdogDeath)")
+        }
+        if (!hasActiveByok && watchdogDeath == null && localLlm.isModelDownloaded()) {
             onStageProgress(
                 when (languageCode.lowercase()) {
                     "en" -> "3/3 · Generating deep reflection via on-device ${localLlm.slotLabel()}..."
@@ -717,10 +721,12 @@ class GroundingAndAiService(private val context: Context) {
 
             val initResult = localLlm.initialize()
             if (initResult.isSuccess) {
+                AppLog.markGenStart("generate slot=${localLlm.slotLabel()}")
                 val localText = localLlm.generate(
                     systemPrompt = masterSystemPrompt,
                     userMessage = userMessage
                 ).getOrNull()
+                AppLog.clearGenMarker()
 
                 if (localText != null && localText.length > 30) {
                     val parts = localText.split("---SOMATIC---")
