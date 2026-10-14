@@ -8,6 +8,7 @@ import com.example.audio.MysticSoundEngine
 import com.example.audio.SphereAcousticNode
 import com.example.data.AiProviderEntity
 import com.example.data.AiProviderKeyEntity
+import com.example.data.ChatMessageEntity
 import com.example.data.ArchitecturalZoneEntity
 import com.example.data.ConceptParticleEntity
 import com.example.data.JournalEntryEntity
@@ -29,6 +30,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -67,6 +71,7 @@ data class NoesisUiState(
     val journalEntries: List<JournalEntryEntity> = emptyList(),
     val providers: List<AiProviderEntity> = emptyList(),
     val currentDraftPrompt: String = "",
+    val currentThreadId: Long? = null,
     val isSimulating: Boolean = false,
     val simulationProgressText: String = "",
     val latestGrounding: GroundingBundle? = null,
@@ -98,6 +103,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     private val _lastVerificationReport = MutableStateFlow<ProviderVerificationReport?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
     private val _currentSessionReading = MutableStateFlow<SimulationLogEntity?>(null)
+    private val _currentThreadId = MutableStateFlow<Long?>(null)
 
     private var lastTouchTimestamp = 0L
     private val recentTouchIntervalsMs = ArrayDeque<Long>()
@@ -128,9 +134,10 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         _simulationProgressText,
         _openedJournalEntry,
         _currentDraftPrompt,
-        _currentSessionReading
-    ) { prog, journal, draft, sessionReading ->
-        Quad(prog, journal, draft, sessionReading)
+        _currentSessionReading,
+        _currentThreadId
+    ) { prog, journal, draft, sessionReading, threadId ->
+        Quint(prog, journal, draft, sessionReading, threadId)
     }
 
     val uiState: StateFlow<NoesisUiState> = combine(coreDataFlow, transientFlow, extraUiFlow) { core, trans, extraUi ->
@@ -215,6 +222,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             journalEntries = journalEntries,
             providers = providers,
             currentDraftPrompt = extraUi.third,
+            currentThreadId = extraUi.fifth,
             isSimulating = trans.fourth,
             simulationProgressText = extraUi.first,
             latestGrounding = _latestGrounding.value,
@@ -362,7 +370,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateDraftPrompt(text: String) {
-        _currentDraftPrompt.value = text
+        if (_currentDraftPrompt.value != text) _currentDraftPrompt.value = text
     }
 
     fun selectTab(tab: NoesisTab) {
@@ -594,6 +602,11 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 _currentSessionReading.value = sessionLogEntity
                 repository.addSimulationLog(sessionLogEntity)
                 AppLog.i("sim", "done via '${result.providerLabel}' narrativeChars=${result.narrativeMarkdown.length}")
+                _currentThreadId.value = autoSaveThreadFromReading(
+                    prompt = promptToUse,
+                    narrative = result.narrativeMarkdown,
+                    somatic = result.somaticShiftSuggestion
+                )
             } catch (e: Exception) {
                 AppLog.e("sim", "simulation failed: ${e.message}")
                 throw e
@@ -664,6 +677,146 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
             )
 
             _statusBannerMessage.value = state.strings.journalSavedToast
+        }
+    }
+
+    fun chatMessagesFlow(entryId: Long?): Flow<List<ChatMessageEntity>> =
+        if (entryId == null) flowOf(emptyList()) else repository.observeChatMessages(entryId)
+
+    /**
+     * Fase 3: salva automaticamente toda leitura como thread de chat do diário
+     * (snapshot imutável + primeira mensagem da assistente) e devolve o entryId.
+     */
+    private suspend fun autoSaveThreadFromReading(
+        prompt: String,
+        narrative: String,
+        somatic: String
+    ): Long {
+        val state = uiState.value
+        val particlesJson = JSONArray().apply {
+            state.particles.forEach { p ->
+                put(JSONObject().apply {
+                    put("name", formatConceptTitleCase(p.name))
+                    put("mass", p.mass.toDouble())
+                    put("charge", p.charge.toDouble())
+                    put("posX", p.posX.toDouble())
+                    put("posY", p.posY.toDouble())
+                })
+            }
+        }.toString()
+        val zonesJson = JSONArray().apply {
+            state.diagnosedZones.forEach { dz ->
+                put(JSONObject().apply {
+                    put("customTitle", dz.zone.customTitle)
+                    put("conceptDomain", dz.zone.conceptDomain)
+                    put("clarity", dz.diagnosedClarity.toDouble())
+                    put("pressure", dz.diagnosedPressure.toDouble())
+                    put("empiricalInterpretation", dz.empiricalInterpretation)
+                })
+            }
+        }.toString()
+        val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
+            .ifBlank { "Estado Mental" }
+        val newId = repository.addJournalEntry(
+            JournalEntryEntity(
+                timestamp = System.currentTimeMillis(),
+                titleSummary = conceptTitleSummary,
+                particlesSnapshotJson = particlesJson,
+                zonesSnapshotJson = zonesJson,
+                userNotesPrompt = prompt,
+                narrativeText = narrative,
+                somaticExerciseText = somatic,
+                bioArousal = state.preferences.bioArousal,
+                bioValence = state.preferences.bioValence,
+                bioFocus = state.preferences.bioFocus
+            )
+        )
+        repository.addChatMessage(
+            ChatMessageEntity(
+                entryId = newId,
+                role = "assistant",
+                text = narrative,
+                somaticText = somatic
+            )
+        )
+        return newId
+    }
+
+    /**
+     * Fase 3: continua a conversa da thread (gera resposta adaptada + nova leva
+     * de exercícios) e atualiza o card com a última resposta.
+     */
+    fun sendThreadReply(entryId: Long, text: String) {
+        val clean = text.trim()
+        if (clean.isBlank() || uiState.value.isSimulating) return
+        _isSimulating.value = true
+        _simulationProgressText.value = uiState.value.strings.synthesizingMessage
+        viewModelScope.launch {
+            try {
+                repository.addChatMessage(
+                    ChatMessageEntity(entryId = entryId, role = "user", text = clean)
+                )
+                val state = uiState.value
+                val history = repository.observeChatMessages(entryId)
+                    .let { flow -> flow.first() }
+                val recap = history.joinToString("\n") { m ->
+                    if (m.role == "user") "Usuário: ${m.text}" else "Noesis: ${m.text.take(500)}"
+                }
+                val conceptNames = state.particles.map { formatConceptTitleCase(it.name) }
+                val particlesSummary = state.particles.joinToString("; ") {
+                    "${formatConceptTitleCase(it.name)}"
+                }
+                val spatialSpheres = state.particles.map {
+                    SphereSpatialDescriptor(
+                        name = formatConceptTitleCase(it.name),
+                        importanceMass = it.mass,
+                        weightHeaviness = it.charge.coerceIn(0f, 1f),
+                        posX = it.posX,
+                        posY = it.posY
+                    )
+                }
+                val engine = repository.resolveActiveEngine()
+                val effectiveLang = AppLanguage.resolveEffectiveLanguage(state.preferences.language)
+                val result = networkService.orchestrateFollowUp(
+                    threadRecap = recap,
+                    newUserText = clean,
+                    particlesSummary = particlesSummary.ifBlank { conceptNames.joinToString(", ") },
+                    conceptNames = conceptNames,
+                    spatialSpheres = spatialSpheres,
+                    arousal = state.preferences.bioArousal,
+                    valence = state.preferences.bioValence,
+                    focus = state.preferences.bioFocus,
+                    languageInstruction = state.strings.languageInstructionForAI,
+                    languageCode = effectiveLang.code,
+                    activeProviderName = engine?.first?.name,
+                    activeBaseUrl = engine?.third,
+                    activeApiKey = engine?.second?.apiKey,
+                    activeModelId = engine?.first?.selectedModel,
+                    onStageProgress = { stageMsg -> _simulationProgressText.value = stageMsg }
+                )
+                repository.addChatMessage(
+                    ChatMessageEntity(
+                        entryId = entryId,
+                        role = "assistant",
+                        text = result.narrativeMarkdown,
+                        somaticText = result.somaticShiftSuggestion
+                    )
+                )
+                val prev = state.currentSessionReading
+                if (prev != null) {
+                    _currentSessionReading.value = prev.copy(
+                        narrativeResponse = result.narrativeMarkdown,
+                        somaticSuggestion = result.somaticShiftSuggestion,
+                        providerUsed = result.providerLabel
+                    )
+                }
+                AppLog.i("sim", "thread reply done via '${result.providerLabel}'")
+            } catch (e: Exception) {
+                AppLog.e("sim", "thread reply failed: ${e.message}")
+                throw e
+            } finally {
+                _isSimulating.value = false
+            }
         }
     }
 

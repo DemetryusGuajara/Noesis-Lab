@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.AssistChip
@@ -36,6 +35,16 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.ChatMessageEntity
+import com.example.ui.components.ChatThread
+import kotlinx.coroutines.flow.Flow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -55,7 +64,8 @@ fun NarrativeOracleScreen(
     onUpdateBiofeedback: (Float, Float, Float) -> Unit,
     onUpdateDraftPrompt: (String) -> Unit,
     onRunSimulation: (String) -> Unit,
-    onSaveStateToJournal: () -> Unit
+    threadMessagesFlow: Flow<List<ChatMessageEntity>>,
+    onSendThreadReply: (Long, String) -> Unit
 ) {
     val strings = uiState.strings
     val prefs = uiState.preferences
@@ -270,9 +280,22 @@ fun NarrativeOracleScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                // Local typing state: keystrokes stay instant even while the
+                // ViewModel round-trips through flows (fixes delete-key cursor lock).
+                var draftLocal by rememberSaveable(uiState.currentDraftPrompt) {
+                    mutableStateOf(uiState.currentDraftPrompt)
+                }
+                LaunchedEffect(uiState.currentDraftPrompt) {
+                    if (uiState.currentDraftPrompt != draftLocal) {
+                        draftLocal = uiState.currentDraftPrompt
+                    }
+                }
                 OutlinedTextField(
-                    value = uiState.currentDraftPrompt,
-                    onValueChange = onUpdateDraftPrompt,
+                    value = draftLocal,
+                    onValueChange = {
+                        draftLocal = it
+                        onUpdateDraftPrompt(it)
+                    },
                     placeholder = {
                         Text(
                             text = strings.promptInputPlaceholder,
@@ -322,29 +345,6 @@ fun NarrativeOracleScreen(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = onSaveStateToJournal,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("oracle_save_journal_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.BookmarkAdd,
-                        contentDescription = strings.saveCurrentStateToJournalButton,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = strings.saveCurrentStateToJournalButton,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "${strings.activeProviderChip} $activeEngineLabel",
                     style = MaterialTheme.typography.labelSmall,
@@ -419,6 +419,18 @@ fun NarrativeOracleScreen(
                         }
                     }
                 }
+            }
+
+            // Fase 3: thread de conversa da leitura (auto-salva no diário).
+            val threadId = uiState.currentThreadId
+            if (threadId != null) {
+                val threadMessages by threadMessagesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+                Spacer(modifier = Modifier.height(4.dp))
+                ChatThread(
+                    messages = threadMessages,
+                    sendEnabled = !uiState.isSimulating,
+                    onSend = { onSendThreadReply(threadId, it) }
+                )
             }
         } else if (!uiState.isSimulating) {
             Surface(

@@ -152,7 +152,7 @@ fun FieldSimulationScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState(), enabled = activeDraggingId == null)
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .testTag("field_simulation_screen")
     ) {
@@ -347,7 +347,9 @@ fun FieldSimulationScreen(
                                     change.consume()
                                     val w = size.width.toFloat().coerceAtLeast(1f)
                                     val h = size.height.toFloat().coerceAtLeast(1f)
-                                    val current = liveOffsets[id] ?: Offset(0.5f, 0.5f)
+                                    val current = liveOffsets[id]
+                                        ?: currentParticles.find { it.id == id }?.let { Offset(it.posX, it.posY) }
+                                        ?: Offset(0.5f, 0.5f)
                                     val nextX = (current.x + dragAmount.x / w).coerceIn(0.08f, 0.92f)
                                     val nextY = (current.y + dragAmount.y / h).coerceIn(0.10f, 0.90f)
                                     liveOffsets[id] = Offset(nextX, nextY)

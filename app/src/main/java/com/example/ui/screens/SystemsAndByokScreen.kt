@@ -95,9 +95,11 @@ import com.example.BuildConfig
 import com.example.R
 import com.example.data.AiProviderEntity
 import com.example.data.AiProviderKeyEntity
+import com.example.data.ChatMessageEntity
 import com.example.data.JournalEntryEntity
 import com.example.i18n.AppLanguage
 import com.example.i18n.StringsCatalog
+import com.example.ui.components.ChatThread
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
@@ -134,7 +136,9 @@ fun SystemsAndByokScreen(
     onDeleteProvider: (Long) -> Unit,
     onExportBackup: (android.net.Uri) -> Unit,
     onImportBackup: (android.net.Uri) -> Unit,
-    keysFlow: (Long) -> Flow<List<AiProviderKeyEntity>>
+    keysFlow: (Long) -> Flow<List<AiProviderKeyEntity>>,
+    threadMessagesFlow: (Long) -> Flow<List<ChatMessageEntity>>,
+    onSendThreadReply: (Long, String) -> Unit
 ) {
     val strings = uiState.strings
     var journalDropdownExpanded by remember { mutableStateOf(false) }
@@ -159,10 +163,15 @@ fun SystemsAndByokScreen(
 
     // Full-Screen Article Viewer Modal for Saved Logbook Entries (Item 16)
     uiState.openedJournalEntry?.let { entry ->
+        val entryThread by remember(entry.id) { threadMessagesFlow(entry.id) }
+            .collectAsStateWithLifecycle(initialValue = emptyList())
         JournalArticleModal(
             entry = entry,
             strings = strings,
             isDark = isDark,
+            threadMessages = entryThread,
+            isSimulating = uiState.isSimulating,
+            onSendReply = { text -> onSendThreadReply(entry.id, text) },
             onClose = { onOpenJournalEntry(null) },
             onDelete = { onDeleteJournalEntry(entry.id) }
         )
@@ -806,6 +815,9 @@ private fun JournalArticleModal(
     entry: JournalEntryEntity,
     strings: com.example.i18n.StringsCatalog,
     isDark: Boolean,
+    threadMessages: List<ChatMessageEntity>,
+    isSimulating: Boolean,
+    onSendReply: (String) -> Unit,
     onClose: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -1076,6 +1088,15 @@ private fun JournalArticleModal(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Fase 3: thread de conversa (snapshot acima é imutável; aqui evolui)
+                ChatThread(
+                    messages = threadMessages,
+                    sendEnabled = !isSimulating,
+                    onSend = onSendReply
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 

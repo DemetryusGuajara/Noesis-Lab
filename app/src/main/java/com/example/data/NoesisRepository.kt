@@ -117,7 +117,17 @@ class NoesisRepository(
     suspend fun addSimulationLog(log: SimulationLogEntity) = dao.insertSimulationLog(log)
 
     suspend fun addJournalEntry(entry: JournalEntryEntity): Long = dao.insertJournalEntry(entry)
-    suspend fun deleteJournalEntry(id: Long) = dao.deleteJournalEntry(id)
+    suspend fun deleteJournalEntry(id: Long) = withContext(Dispatchers.IO) {
+        dao.deleteChatMessagesOf(id)
+        dao.deleteJournalEntry(id)
+    }
+
+    // ---------- Fase 3: threads de chat ----------
+
+    fun observeChatMessages(entryId: Long): Flow<List<ChatMessageEntity>> =
+        dao.observeChatMessages(entryId)
+
+    suspend fun addChatMessage(message: ChatMessageEntity): Long = dao.insertChatMessage(message)
 
     suspend fun saveVerifiedProvider(provider: AiProviderEntity): Long {
         if (provider.isActive) {
@@ -362,6 +372,19 @@ class NoesisRepository(
                         })
                     }
                 })
+                val allChats = dao.getAllChatMessagesOnce()
+                put("chatMessages", JSONArray().apply {
+                    allChats.forEach { c ->
+                        put(JSONObject().apply {
+                            put("entryTitle", journalEntries.firstOrNull { it.id == c.entryId }?.titleSummary ?: "")
+                            put("entryTimestamp", journalEntries.firstOrNull { it.id == c.entryId }?.timestamp ?: 0L)
+                            put("role", c.role)
+                            put("text", c.text)
+                            put("somaticText", c.somaticText)
+                            put("timestamp", c.timestamp)
+                        })
+                    }
+                })
                 put("providers", JSONArray().apply {
                     providers.forEach { pr ->
                         val keys = dao.getProviderKeysOnce(pr.id)
@@ -523,7 +546,29 @@ class NoesisRepository(
                 }
                 if (list.isNotEmpty()) {
                     dao.clearAllJournalEntries()
-                    dao.insertJournalEntries(list)
+                    dao.clearAllChatMessages()
+                    val idMap = mutableMapOf<Pair<String, Long>, Long>()
+                    list.forEach { entry ->
+                        val newId = dao.insertJournalEntry(entry)
+                        idMap[Pair(entry.titleSummary, entry.timestamp)] = newId
+                    }
+                    root.optJSONArray("chatMessages")?.let { chatArr ->
+                        for (i in 0 until chatArr.length()) {
+                            val c = chatArr.getJSONObject(i)
+                            val targetId = idMap[Pair(c.optString("entryTitle", ""), c.optLong("entryTimestamp", 0L))]
+                            if (targetId != null) {
+                                dao.insertChatMessage(
+                                    ChatMessageEntity(
+                                        entryId = targetId,
+                                        role = c.optString("role", "user"),
+                                        text = c.optString("text", ""),
+                                        somaticText = c.optString("somaticText", ""),
+                                        timestamp = c.optLong("timestamp", System.currentTimeMillis())
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

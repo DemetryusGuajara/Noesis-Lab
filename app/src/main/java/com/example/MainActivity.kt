@@ -290,7 +290,8 @@ fun NoesisAppShell(
                     onUpdateBiofeedback = viewModel::updateExplicitBiofeedback,
                     onUpdateDraftPrompt = viewModel::updateDraftPrompt,
                     onRunSimulation = { prompt -> viewModel.collideAndRunSimulation(prompt) },
-                    onSaveStateToJournal = viewModel::saveCurrentStateToJournal
+                    threadMessagesFlow = viewModel.chatMessagesFlow(uiState.currentThreadId),
+                    onSendThreadReply = viewModel::sendThreadReply
                 )
 
                 NoesisTab.SETTINGS -> SystemsAndByokScreen(
@@ -311,7 +312,9 @@ fun NoesisAppShell(
                     onDeleteProvider = viewModel::deleteProvider,
                     onExportBackup = viewModel::exportBackup,
                     onImportBackup = viewModel::importBackup,
-                    keysFlow = viewModel::providerKeysFlow
+                    keysFlow = viewModel::providerKeysFlow,
+                    threadMessagesFlow = viewModel::chatMessagesFlow,
+                    onSendThreadReply = viewModel::sendThreadReply
                 )
             }
 

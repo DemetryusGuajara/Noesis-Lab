@@ -135,6 +135,25 @@ interface NoesisDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertJournalEntry(entry: JournalEntryEntity): Long
 
+    // Chat thread messages (Fase 3: journal auto-saved as chats)
+    @Query("SELECT * FROM chat_messages WHERE entryId = :entryId ORDER BY timestamp ASC, id ASC")
+    fun observeChatMessages(entryId: Long): Flow<List<ChatMessageEntity>>
+
+    @Query("SELECT * FROM chat_messages WHERE entryId = :entryId ORDER BY timestamp ASC, id ASC")
+    suspend fun getChatMessagesOnce(entryId: Long): List<ChatMessageEntity>
+
+    @Query("SELECT * FROM chat_messages")
+    suspend fun getAllChatMessagesOnce(): List<ChatMessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChatMessage(message: ChatMessageEntity): Long
+
+    @Query("DELETE FROM chat_messages WHERE entryId = :entryId")
+    suspend fun deleteChatMessagesOf(entryId: Long)
+
+    @Query("DELETE FROM chat_messages")
+    suspend fun clearAllChatMessages()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertJournalEntries(entries: List<JournalEntryEntity>)
 
@@ -152,9 +171,10 @@ interface NoesisDao {
         SimulationLogEntity::class,
         AiProviderEntity::class,
         AiProviderKeyEntity::class,
-        JournalEntryEntity::class
+        JournalEntryEntity::class,
+        ChatMessageEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class NoesisDatabase : RoomDatabase() {
@@ -190,13 +210,30 @@ abstract class NoesisDatabase : RoomDatabase() {
             }
         }
 
+        // Migração 3 -> 4: tabela de chat (threads do diário). Só cria; nada é perdido.
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS chat_messages (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "entryId INTEGER NOT NULL, " +
+                        "role TEXT NOT NULL, " +
+                        "text TEXT NOT NULL, " +
+                        "somaticText TEXT NOT NULL DEFAULT '', " +
+                        "timestamp INTEGER NOT NULL DEFAULT 0, " +
+                        "FOREIGN KEY(entryId) REFERENCES journal_entries(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_entryId ON chat_messages(entryId)")
+            }
+        }
+
         fun getInstance(context: Context): NoesisDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     NoesisDatabase::class.java,
                     "noesis_conscious_lab.db"
-                ).addMigrations(MIGRATION_2_3).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

@@ -97,10 +97,27 @@ data class AiProviderKeyEntity(
 )
 
 /**
- * Immutable Article Snapshot saved in the User's Logbook ("Diário de Bordo" - Item 16).
- * Captures the gravitational field snapshot, architectural diagnosis snapshot, user notes,
- * and generated reflections/exercises with date and time.
+ * Chat thread message (Fase 3): every generated reading auto-creates a journal
+ * entry; follow-ups append here. Snapshots stay immutable; the thread evolves.
  */
+@Entity(
+    tableName = "chat_messages",
+    foreignKeys = [ForeignKey(
+        entity = JournalEntryEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["entryId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("entryId")]
+)
+data class ChatMessageEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val entryId: Long,
+    val role: String, // "user" | "assistant"
+    val text: String,
+    val somaticText: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
 @Entity(tableName = "journal_entries")
 data class JournalEntryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

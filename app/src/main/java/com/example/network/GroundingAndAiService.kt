@@ -566,7 +566,7 @@ class GroundingAndAiService(private val context: Context) {
 
         DADOS — Esferas: $particlesSummary
         Topologia: $topologyDescription
-        Base conceitual:
+        Base conceitual (pode conter vários idiomas — inglês, francês, alemão etc.: leia tudo, mas responda sempre no idioma do app):
         $cleanKnowledgeSummary
 
         ESTRUTURA (Markdown): título `#` poético e inédito; `### 1.` geometria do momento citando nominalmente os pares; `### 2.` insight que desmonte o falso dilema do relato; `### 3.` um tópico por esfera (cor, peso, sentido), variando a frase a cada esfera; `---SOMATIC---` + exercício corporal INÉDITO de 3 passos (uma técnica validada + uma metáfora das esferas; proibido repetir sempre o mesmo trio).
@@ -726,6 +726,122 @@ class GroundingAndAiService(private val context: Context) {
         )
 
         AppLog.i("sim", "tier=internal-fallback wiki=${grounding.wikiSources.size} acad=${grounding.academicSources.size}")
+        OrchestratedSimulationResult(
+            narrativeMarkdown = synthesized,
+            somaticShiftSuggestion = somatic,
+            providerLabel = "Motor Interno",
+            grounding = grounding
+        )
+    }
+
+    /**
+     * Fase 3: continua uma leitura dentro da thread (chat). Cada resposta traz
+     * texto adaptado ao relato + NOVA leva de exercícios (seed distinta).
+     */
+    suspend fun orchestrateFollowUp(
+        threadRecap: String,
+        newUserText: String,
+        particlesSummary: String,
+        conceptNames: List<String>,
+        spatialSpheres: List<SphereSpatialDescriptor> = emptyList(),
+        arousal: Float,
+        valence: Float,
+        focus: Float,
+        languageInstruction: String,
+        languageCode: String,
+        activeProviderName: String?,
+        activeBaseUrl: String?,
+        activeApiKey: String?,
+        activeModelId: String?,
+        onStageProgress: (String) -> Unit = {}
+    ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
+        val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
+        val topology = analyzeSpatialTopology(spatialSpheres)
+        val seed = System.currentTimeMillis()
+
+        onStageProgress(
+            when (languageCode.lowercase()) {
+                "en" -> "Listening and re-reading your field..."
+                "es" -> "Escuchando y releyendo tu campo..."
+                "fr" -> "Écoute et relecture de votre champ..."
+                else -> "Ouvindo e relendo seu campo..."
+            }
+        )
+        val grounding = fetchLiveGrounding(
+            queryConcepts = titleCasedConcepts,
+            userPrompt = newUserText,
+            languageCode = languageCode
+        )
+
+        val topologySummary = buildTopologyDescriptionString(topology)
+        val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
+            "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
+        }
+
+        val threadSystemPrompt = buildMasterPhenomenologicalSystemPrompt(
+            languageInstruction = languageInstruction,
+            particlesSummary = particlesSummary,
+            topologyDescription = topologySummary,
+            cleanKnowledgeSummary = cleanKnowledgeSummary,
+            arousal = arousal,
+            valence = valence,
+            focus = focus
+        ) + "\n\nCONTINUIDADE DE CONVERSA (obrigatório): isto é uma resposta dentro de um diálogo. " +
+            "Dialogue diretamente com o último relato do usuário, reconheça o que ele concordou ou discordou, " +
+            "adapte a leitura ao cenário específico que ele descreve agora e NUNCA repita exercícios anteriores — " +
+            "crie uma leva inédita de 3 passos após ---SOMATIC---."
+
+        val threadMessage = """
+            Contexto da conversa até aqui (resumo):
+            ${threadRecap.take(900)}
+            Novo relato do usuário nesta sessão: $newUserText
+        """.trimIndent()
+
+        if (!activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()) {
+            val byokText = callOpenAiCompatibleEndpoint(
+                endpointUrl = "${normalizeOpenAiBaseUrl(activeBaseUrl)}/chat/completions",
+                apiKey = activeApiKey,
+                modelId = activeModelId,
+                systemPrompt = threadSystemPrompt,
+                userMessage = threadMessage
+            )
+            if (byokText != null) {
+                val parts = byokText.split("---SOMATIC---")
+                return@withContext OrchestratedSimulationResult(
+                    narrativeMarkdown = parts[0].trim(),
+                    somaticShiftSuggestion = if (parts.size > 1 && parts[1].isNotBlank()) parts[1].trim() else buildDeepSomaticPractice(
+                        languageCode, arousal, valence, focus, titleCasedConcepts, topology, newUserText, seed + 7
+                    ),
+                    providerLabel = "${activeProviderName ?: "BYOK"} · $activeModelId",
+                    grounding = grounding
+                )
+            }
+        }
+
+        delay(450)
+        val userPrompt2 = "Leitura inicial e desdobramentos: ${threadRecap.take(500)}\n\nNovo relato: $newUserText"
+        val synthesized = synthesizeDeepMultiSphereNarrative(
+            userPrompt = userPrompt2,
+            spatialSpheres = spatialSpheres,
+            topology = topology,
+            conceptNames = titleCasedConcepts,
+            arousal = arousal,
+            valence = valence,
+            focus = focus,
+            grounding = grounding,
+            languageCode = languageCode,
+            seed = seed
+        )
+        val somatic = buildDeepSomaticPractice(
+            languageCode = languageCode,
+            arousal = arousal,
+            valence = valence,
+            focus = focus,
+            concepts = titleCasedConcepts,
+            topology = topology,
+            userPrompt = newUserText,
+            seed = seed + 7
+        )
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
