@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloudflare Workers AI — Noesis Lab Keys</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<main>
+<p class="nav"><a href="index.html">← All providers</a> · <a href="../pt/cloudflare.html">Português</a></p>
+<h1>Cloudflare Workers AI</h1>
+<p class="endpoint">Endpoint template locked in the app:<br><code>https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1</code></p>
+<p>This provider is special: <strong>each key slot needs two fields</strong> — the <strong>Account ID</strong> and the <strong>API token</strong>. Never edit the endpoint; just fill the Account ID box and the app builds the full URL for you (it updates live when you switch slots).</p>
+<h2>1. Find your Account ID</h2>
+<ol>
+<li>Go to <a href="https://dash.cloudflare.com/">dash.cloudflare.com</a> and sign in.</li>
+<li>Your <strong>Account ID</strong> is shown on the right sidebar of any domain overview page (32 hex characters). Copy it.</li>
+<!-- screenshot: account ID location -->
+</ol>
+<h2>2. Create your API token</h2>
+<ol>
+<li>Click your profile icon (top right) → <strong>My Profile</strong> → <strong>API Tokens</strong> → <strong>Create Token</strong>.</li>
+<li>Use the <strong>Workers AI</strong> template (it pre-selects the right permissions) or a custom token with Workers AI access, then copy the token value.</li>
+<!-- screenshot: token creation -->
+</ol>
+<p class="note">Free tier: Workers AI includes a free daily allowance of requests/neurons. Confirm current limits at <a href="https://developers.cloudflare.com/workers-ai/platform/pricing/">the official pricing page</a>.</p>
+<h2>3. Use it in Noesis Lab</h2>
+<ol>
+<li>Settings → <strong>Cloudflare Workers AI</strong> → <strong>+ Add key</strong>.</li>
+<li>Fill <strong>Account ID</strong> (watch the URL preview update) and paste the <strong>token</strong>, then tap <strong>Save, Test &amp; Filter Models</strong>.</li>
+<li>Pick a responding model chip (★ = active).</li>
+</ol>
+<p>Official docs: <a href="https://developers.cloudflare.com/workers-ai/get-started/rest-api/">REST API quickstart</a> · <a href="https://developers.cloudflare.com/workers-ai/models/">model list</a></p>
+<footer>Noesis Lab · MediaMind Labs</footer>
+</main>
+</body>
+</html>

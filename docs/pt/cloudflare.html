@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloudflare Workers AI — Chaves Noesis Lab</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<main>
+<p class="nav"><a href="index.html">← Todos os provedores</a> · <a href="../en/cloudflare.html">English</a></p>
+<h1>Cloudflare Workers AI</h1>
+<p class="endpoint">Template de endpoint travado no app:<br><code>https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1</code></p>
+<p>Este provedor é especial: <strong>cada slot de chave precisa de dois campos</strong> — o <strong>Account ID</strong> e o <strong>token da API</strong>. Nunca edite o endpoint; preencha só a caixa do Account ID e o app monta a URL completa sozinho (atualiza ao trocar de slot).</p>
+<h2>1. Encontre seu Account ID</h2>
+<ol>
+<li>Acesse <a href="https://dash.cloudflare.com/">dash.cloudflare.com</a> e entre na sua conta.</li>
+<li>O <strong>Account ID</strong> aparece na barra lateral direita da página de qualquer domínio (32 caracteres hexadecimais). Copie.</li>
+<!-- screenshot: localização do account ID -->
+</ol>
+<h2>2. Crie seu token de API</h2>
+<ol>
+<li>Clique no ícone do seu perfil (canto superior direito) → <strong>My Profile</strong> → <strong>API Tokens</strong> → <strong>Create Token</strong>.</li>
+<li>Use o template <strong>Workers AI</strong> (já vem com as permissões certas) ou um token custom com acesso ao Workers AI, e copie o valor.</li>
+<!-- screenshot: criação do token -->
+</ol>
+<p class="note">Free tier: o Workers AI inclui cota diária gratuita de requisições/neurônios. Confirme os limites atuais na <a href="https://developers.cloudflare.com/workers-ai/platform/pricing/">página oficial de preços</a>.</p>
+<h2>3. Usando no Noesis Lab</h2>
+<ol>
+<li>Ajustes → <strong>Cloudflare Workers AI</strong> → <strong>+ Adicionar chave</strong>.</li>
+<li>Preencha o <strong>Account ID</strong> (veja o preview da URL atualizar) e cole o <strong>token</strong>, depois toque em <strong>Salvar, Testar &amp; Filtrar Modelos</strong>.</li>
+<li>Escolha um modelo que respondeu (★ = em uso).</li>
+</ol>
+<p>Documentação oficial: <a href="https://developers.cloudflare.com/workers-ai/get-started/rest-api/">início rápido REST</a> · <a href="https://developers.cloudflare.com/workers-ai/models/">lista de modelos</a></p>
+<footer>Noesis Lab · MediaMind Labs</footer>
+</main>
+</body>
+</html>

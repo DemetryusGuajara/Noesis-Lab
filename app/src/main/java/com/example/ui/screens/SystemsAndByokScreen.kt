@@ -525,6 +525,28 @@ fun SystemsAndByokScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                val docsContext = LocalContext.current
+                OutlinedButton(
+                    onClick = {
+                        docsContext.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://demetryusguajara.github.io/Noesis-Lab/")
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Book,
+                        contentDescription = "Tutoriais de chaves grátis",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Tutoriais de chaves grátis")
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
