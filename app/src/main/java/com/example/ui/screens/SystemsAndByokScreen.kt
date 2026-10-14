@@ -27,10 +27,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
@@ -58,16 +60,19 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,8 +93,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
 import com.example.R
+import com.example.data.AiProviderEntity
+import com.example.data.AiProviderKeyEntity
 import com.example.data.JournalEntryEntity
 import com.example.i18n.AppLanguage
+import com.example.i18n.StringsCatalog
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
@@ -97,6 +105,7 @@ import com.example.util.AppLog
 import com.example.util.LogCollector
 import com.example.viewmodel.NoesisUiState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -114,17 +123,20 @@ fun SystemsAndByokScreen(
     onSaveCurrentStateToJournal: () -> Unit,
     onOpenJournalEntry: (JournalEntryEntity?) -> Unit,
     onDeleteJournalEntry: (Long) -> Unit,
-    onVerifyAndSaveProvider: (String, String, String) -> Unit,
+    onVerifyKeySlot: (Long, Long, String, String) -> Unit,
+    onAddKeySlot: (Long) -> Unit,
+    onDeleteKeySlot: (Long, Long) -> Unit,
+    onSetActiveKeySlot: (Long, Long) -> Unit,
+    onEnsureCustomProvider: (String, String) -> Unit,
+    onUpdateCustomProvider: (Long, String, String) -> Unit,
     onActivateProviderModel: (Long, String) -> Unit,
     onUseBuiltInEngine: () -> Unit,
     onDeleteProvider: (Long) -> Unit,
     onExportBackup: (android.net.Uri) -> Unit,
-    onImportBackup: (android.net.Uri) -> Unit
+    onImportBackup: (android.net.Uri) -> Unit,
+    keysFlow: (Long) -> Flow<List<AiProviderKeyEntity>>
 ) {
     val strings = uiState.strings
-    var providerName by remember { mutableStateOf("") }
-    var providerBaseUrl by remember { mutableStateOf("https://api.openai.com/v1") }
-    var providerApiKey by remember { mutableStateOf("") }
     var journalDropdownExpanded by remember { mutableStateOf(false) }
 
     val isDark = when (uiState.preferences.themeMode) {
@@ -474,7 +486,7 @@ fun SystemsAndByokScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Section 4: OpenAI-Compatible BYOK Multi-Provider Manager
+        // Section 4: BYOK Fase 2 — provedores fixos + slots de chaves + custom
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -505,100 +517,35 @@ fun SystemsAndByokScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val endpointPresets = listOf(
-                        "OpenAI" to "https://api.openai.com/v1",
-                        "OpenRouter" to "https://openrouter.ai/api/v1",
-                        "Groq" to "https://api.groq.com/openai/v1",
-                        "DeepSeek" to "https://api.deepseek.com/v1",
-                        "Together" to "https://api.together.xyz/v1",
-                        "Mistral" to "https://api.mistral.ai/v1"
-                    )
-                    endpointPresets.forEach { (label, url) ->
-                        FilterChip(
-                            selected = providerBaseUrl == url,
-                            onClick = {
-                                providerName = label
-                                providerBaseUrl = url
-                            },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = providerName,
-                    onValueChange = { providerName = it },
-                    label = { Text(strings.providerNameLabel) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("provider_name_input")
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = providerBaseUrl,
-                    onValueChange = { providerBaseUrl = it },
-                    label = { Text(strings.providerBaseUrlLabel) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("provider_url_input")
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = providerApiKey,
-                    onValueChange = { providerApiKey = it },
-                    label = { Text(strings.providerApiKeyLabel) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("provider_apikey_input")
-                )
-
                 Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Provedores com free tier (endereços fixos)",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Button(
-                    onClick = {
-                        onVerifyAndSaveProvider(providerName, providerBaseUrl, providerApiKey)
-                    },
-                    enabled = !uiState.isVerifyingProvider && providerBaseUrl.isNotBlank(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("verify_ping_provider_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    if (uiState.isVerifyingProvider) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                uiState.providers.filter { !it.isCustom }.sortedBy { it.sortOrder }.forEach { provider ->
+                    key(provider.id) {
+                        ProviderKeysCard(
+                            provider = provider,
+                            strings = strings,
+                            locked = true,
+                            isVerifying = uiState.isVerifyingProvider,
+                            keysFlow = keysFlow,
+                            onVerifyKey = { keyId, key, account ->
+                                onVerifyKeySlot(provider.id, keyId, key, account)
+                            },
+                            onAddKey = { onAddKeySlot(provider.id) },
+                            onDeleteKey = { keyId -> onDeleteKeySlot(keyId, provider.id) },
+                            onSetActiveKey = { keyId -> onSetActiveKeySlot(keyId, provider.id) },
+                            onActivateModel = { model -> onActivateProviderModel(provider.id, model) },
+                            onDeleteProvider = null,
+                            onSaveCustom = null
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(strings.verifyingModelsStatus, maxLines = 1)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.NetworkCheck,
-                            contentDescription = strings.verifyAndPingButton,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(strings.verifyAndPingButton)
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 AnimatedVisibility(visible = uiState.lastVerificationReport != null) {
@@ -606,7 +553,7 @@ fun SystemsAndByokScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 12.dp),
+                                .padding(top = 4.dp, bottom = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
@@ -641,7 +588,41 @@ fun SystemsAndByokScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Meus provedores (OpenAI-compatible, editáveis)",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                CustomProviderCreator(onEnsureCustomProvider = onEnsureCustomProvider)
+
+                Spacer(modifier = Modifier.height(6.dp))
+                uiState.providers.filter { it.isCustom }.forEach { provider ->
+                    key(provider.id) {
+                        ProviderKeysCard(
+                            provider = provider,
+                            strings = strings,
+                            locked = false,
+                            isVerifying = uiState.isVerifyingProvider,
+                            keysFlow = keysFlow,
+                            onVerifyKey = { keyId, key, account ->
+                                onVerifyKeySlot(provider.id, keyId, key, account)
+                            },
+                            onAddKey = { onAddKeySlot(provider.id) },
+                            onDeleteKey = { keyId -> onDeleteKeySlot(keyId, provider.id) },
+                            onSetActiveKey = { keyId -> onSetActiveKeySlot(keyId, provider.id) },
+                            onActivateModel = { model -> onActivateProviderModel(provider.id, model) },
+                            onDeleteProvider = { onDeleteProvider(provider.id) },
+                            onSaveCustom = { name, url -> onUpdateCustomProvider(provider.id, name, url) }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -657,89 +638,6 @@ fun SystemsAndByokScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(strings.builtInEngineLabel, style = MaterialTheme.typography.labelMedium)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                uiState.providers.forEach { provider ->
-                    val verifiedModels = provider.verifiedModelsCsv
-                        .split(",")
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = if (provider.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = provider.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = provider.baseUrl,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(onClick = { onDeleteProvider(provider.id) }) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = strings.deleteProviderButton,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            if (verifiedModels.isEmpty()) {
-                                Text(
-                                    text = strings.noVerifiedModelsYet,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Text(
-                                    text = "${verifiedModels.size} ${strings.verifiedModelsCount}:",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    verifiedModels.forEach { modelId ->
-                                        val isCurrentlyActive = provider.isActive && provider.selectedModel == modelId
-                                        FilterChip(
-                                            selected = isCurrentlyActive,
-                                            onClick = { onActivateProviderModel(provider.id, modelId) },
-                                            label = {
-                                                Text(
-                                                    text = if (isCurrentlyActive) "★ $modelId (${strings.activeModelBadge})" else modelId,
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -1401,6 +1299,309 @@ private fun writeDiagnosticsReport(
     context.contentResolver.openOutputStream(uri)?.use { out ->
         out.write(sb.toString().toByteArray())
     } ?: throw IllegalStateException("não foi possível abrir o destino")
+}
+
+/**
+ * Card de um provedor Fase 2: nome/endpoint travados (ou editáveis se custom),
+ * slots de chave com + azul / X vermelho / radio de ativa, campo Cloudflare
+ * account_id por slot quando aplicável, ping + modelos verificados.
+ */
+@Composable
+private fun ProviderKeysCard(
+    provider: AiProviderEntity,
+    strings: StringsCatalog,
+    locked: Boolean,
+    isVerifying: Boolean,
+    keysFlow: (Long) -> Flow<List<AiProviderKeyEntity>>,
+    onVerifyKey: (Long, String, String) -> Unit,
+    onAddKey: () -> Unit,
+    onDeleteKey: (Long) -> Unit,
+    onSetActiveKey: (Long) -> Unit,
+    onActivateModel: (String) -> Unit,
+    onDeleteProvider: (() -> Unit)?,
+    onSaveCustom: ((String, String) -> Unit)?
+) {
+    val keys by remember(provider.id) { keysFlow(provider.id) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    var keyTexts by remember { mutableStateOf(mapOf<Long, String>()) }
+    var accountTexts by remember { mutableStateOf(mapOf<Long, String>()) }
+    var customName by remember(provider.id) { mutableStateOf(provider.name) }
+    var customUrl by remember(provider.id) { mutableStateOf(provider.baseUrl) }
+
+    LaunchedEffect(keys) {
+        keyTexts = keys.associate { it.id to (keyTexts[it.id] ?: it.apiKey) }
+        accountTexts = keys.associate { it.id to (accountTexts[it.id] ?: it.accountId) }
+    }
+
+    val isCloudflare = provider.baseUrl.contains("{account_id}")
+    val verifiedModels = provider.verifiedModelsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (provider.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (locked) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = provider.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = provider.baseUrl,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = customName,
+                            onValueChange = { customName = it },
+                            label = { Text(strings.providerNameLabel) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = customUrl,
+                            onValueChange = { customUrl = it },
+                            label = { Text(strings.providerBaseUrlLabel) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    IconButton(onClick = { onSaveCustom?.invoke(customName, customUrl) }) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Salvar",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                if (onDeleteProvider != null) {
+                    IconButton(onClick = onDeleteProvider) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = strings.deleteProviderButton,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            keys.forEach { slot ->
+                val keyText = keyTexts[slot.id] ?: slot.apiKey
+                val accountText = accountTexts[slot.id] ?: slot.accountId
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        0.5.dp,
+                        if (slot.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = slot.isActive,
+                                onClick = { onSetActiveKey(slot.id) },
+                                modifier = Modifier.testTag("key_active_${slot.id}")
+                            )
+                            Text(
+                                text = slot.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (keys.size > 1) {
+                                IconButton(
+                                    onClick = { onDeleteKey(slot.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remover chave",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                        if (isCloudflare) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = accountText,
+                                onValueChange = { accountTexts = accountTexts + (slot.id to it) },
+                                label = { Text("Account ID (Cloudflare)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = provider.baseUrl.replace("{account_id}", accountText.ifBlank { "…" }),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = keyText,
+                            onValueChange = { keyTexts = keyTexts + (slot.id to it) },
+                            label = { Text(strings.providerApiKeyLabel) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("key_input_${slot.id}")
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { onVerifyKey(slot.id, keyText, accountText) },
+                            enabled = !isVerifying && keyText.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            if (isVerifying) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(strings.verifyingModelsStatus, maxLines = 1)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.NetworkCheck,
+                                    contentDescription = strings.verifyAndPingButton,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(strings.verifyAndPingButton)
+                            }
+                        }
+                    }
+                }
+            }
+
+            OutlinedButton(
+                onClick = onAddKey,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0xFF2196F3))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Adicionar chave",
+                    tint = Color(0xFF2196F3),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Adicionar chave", color = Color(0xFF2196F3))
+            }
+
+            if (verifiedModels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${verifiedModels.size} ${strings.verifiedModelsCount}:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    verifiedModels.forEach { modelId ->
+                        val isCurrentlyActive = provider.isActive && provider.selectedModel == modelId
+                        FilterChip(
+                            selected = isCurrentlyActive,
+                            onClick = { onActivateModel(modelId) },
+                            label = {
+                                Text(
+                                    text = if (isCurrentlyActive) "★ $modelId (${strings.activeModelBadge})" else modelId,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        )
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = strings.noVerifiedModelsYet,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("https://") }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nome do provedor") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("URL base (/v1)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    onEnsureCustomProvider(name, url)
+                    name = ""
+                    url = "https://"
+                },
+                enabled = url.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Adicionar provedor",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Adicionar provedor")
+            }
+        }
+    }
 }
 
 private data class SnapshotZone(

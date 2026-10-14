@@ -300,12 +300,18 @@ fun NoesisAppShell(
                     onSaveCurrentStateToJournal = viewModel::saveCurrentStateToJournal,
                     onOpenJournalEntry = viewModel::openJournalEntry,
                     onDeleteJournalEntry = viewModel::deleteJournalEntry,
-                    onVerifyAndSaveProvider = viewModel::verifyAndSaveByokProvider,
+                    onVerifyKeySlot = viewModel::verifyKeySlot,
+                    onAddKeySlot = viewModel::addKeySlot,
+                    onDeleteKeySlot = viewModel::deleteKeySlot,
+                    onSetActiveKeySlot = viewModel::setActiveKeySlot,
+                    onEnsureCustomProvider = viewModel::ensureCustomProvider,
+                    onUpdateCustomProvider = viewModel::updateCustomProviderDetails,
                     onActivateProviderModel = viewModel::activateProviderModel,
                     onUseBuiltInEngine = viewModel::useBuiltInEngine,
                     onDeleteProvider = viewModel::deleteProvider,
                     onExportBackup = viewModel::exportBackup,
-                    onImportBackup = viewModel::importBackup
+                    onImportBackup = viewModel::importBackup,
+                    keysFlow = viewModel::providerKeysFlow
                 )
             }
 

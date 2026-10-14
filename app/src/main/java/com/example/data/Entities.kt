@@ -1,6 +1,8 @@
 package com.example.data
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "concept_particles")
@@ -61,11 +63,37 @@ data class AiProviderEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val baseUrl: String,
-    val apiKey: String,
+    val apiKey: String, // Legado (Fase 2 usa ai_provider_keys); mantido p/ migração
     val verifiedModelsCsv: String,
     val selectedModel: String,
     val isActive: Boolean,
+    val isCustom: Boolean = false, // Hardcoded (false) tem nome/endpoint imutáveis
+    val sortOrder: Int = 0,
     val lastVerifiedAt: Long = 0L
+)
+
+/**
+ * Slots de chave/API por provedor (Fase 2: rotação de free tier).
+ * Cloudflare usa accountId por slot; endpoint com {account_id} é resolvido na chamada.
+ */
+@Entity(
+    tableName = "ai_provider_keys",
+    foreignKeys = [ForeignKey(
+        entity = AiProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["providerId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("providerId")]
+)
+data class AiProviderKeyEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val providerId: Long,
+    val label: String,
+    val apiKey: String,
+    val accountId: String = "",
+    val isActive: Boolean = false,
+    val sortOrder: Int = 0
 )
 
 /**

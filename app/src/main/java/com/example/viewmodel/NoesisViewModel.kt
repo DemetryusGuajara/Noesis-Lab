@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.audio.MysticSoundEngine
 import com.example.audio.SphereAcousticNode
 import com.example.data.AiProviderEntity
+import com.example.data.AiProviderKeyEntity
 import com.example.data.ArchitecturalZoneEntity
 import com.example.data.ConceptParticleEntity
 import com.example.data.JournalEntryEntity
@@ -550,7 +551,9 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
 
-                val activeProvider = state.providers.firstOrNull { it.isActive && it.selectedModel.isNotBlank() }
+                val engine = repository.resolveActiveEngine()
+                val activeProvider = engine?.first
+                val activeKey = engine?.second
                 val effectiveLang = AppLanguage.resolveEffectiveLanguage(state.preferences.language)
 
                 val result = networkService.orchestrateConsciousSimulation(
@@ -564,8 +567,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     languageInstruction = state.strings.languageInstructionForAI,
                     languageCode = effectiveLang.code,
                     activeProviderName = activeProvider?.name,
-                    activeBaseUrl = activeProvider?.baseUrl,
-                    activeApiKey = activeProvider?.apiKey,
+                    activeBaseUrl = engine?.third,
+                    activeApiKey = activeKey?.apiKey,
                     activeModelId = activeProvider?.selectedModel,
                     onStageProgress = { stageMsg ->
                         _simulationProgressText.value = stageMsg
@@ -681,12 +684,18 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { repository.setLanguage(language) }
     }
 
-    fun verifyAndSaveByokProvider(
-        name: String,
-        baseUrl: String,
-        apiKey: String
+    fun providerKeysFlow(providerId: Long) = repository.observeKeysFlow(providerId)
+
+    /**
+     * Fase 2: verifica um slot de chave específico (usa o accountId p/ Cloudflare),
+     * persiste chave+conta e atualiza modelos verificados do provedor.
+     */
+    fun verifyKeySlot(
+        providerId: Long,
+        keyId: Long,
+        apiKeyText: String,
+        accountIdText: String
     ) {
-        if (baseUrl.isBlank()) return
         _isVerifyingProvider.value = true
         _lastVerificationReport.value = null
 
@@ -699,20 +708,39 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             try {
+                val provider = repository.daoProviderById(providerId)
+                if (provider == null) return@launch
+                val resolvedUrl = repository.resolveBaseUrl(provider.baseUrl, accountIdText)
                 val report = networkService.verifyProviderAndPingModels(
-                    rawBaseUrl = baseUrl,
-                    apiKey = apiKey,
+                    rawBaseUrl = resolvedUrl,
+                    apiKey = apiKeyText.trim(),
                     pingWord = pingWord
                 )
                 _lastVerificationReport.value = report
 
+                repository.updateKeySlot(
+                    AiProviderKeyEntity(
+                        id = keyId,
+                        providerId = providerId,
+                        label = "",
+                        apiKey = apiKeyText.trim(),
+                        accountId = accountIdText.trim(),
+                        isActive = true,
+                        sortOrder = 0
+                    ).let { incoming ->
+                        val current = repository.getProviderKeys(providerId).firstOrNull { it.id == keyId }
+                        incoming.copy(
+                            label = current?.label ?: "Chave",
+                            sortOrder = current?.sortOrder ?: 0
+                        )
+                    }
+                )
+                repository.setActiveKeySlot(keyId, providerId)
+
                 val verifiedModels = report.verifiedResponsiveModels
-                val firstModel = verifiedModels.firstOrNull() ?: ""
-                repository.saveVerifiedProvider(
-                    AiProviderEntity(
-                        name = name.ifBlank { "Custom OpenAI Provider" },
-                        baseUrl = baseUrl.trim(),
-                        apiKey = apiKey.trim(),
+                val firstModel = verifiedModels.firstOrNull() ?: provider.selectedModel
+                repository.updateProviderVerification(
+                    provider.copy(
                         verifiedModelsCsv = verifiedModels.joinToString(","),
                         selectedModel = firstModel,
                         isActive = verifiedModels.isNotEmpty(),
@@ -723,6 +751,35 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 _isVerifyingProvider.value = false
             }
         }
+    }
+
+    fun ensureCustomProvider(name: String, baseUrl: String) {
+        if (baseUrl.isBlank()) return
+        viewModelScope.launch {
+            val existing = repository.findProviderByUrl(baseUrl)
+            if (existing == null) {
+                repository.createCustomProvider(name, baseUrl)
+            }
+        }
+    }
+
+    fun updateCustomProviderDetails(providerId: Long, name: String, baseUrl: String) {
+        viewModelScope.launch {
+            val provider = repository.daoProviderById(providerId) ?: return@launch
+            repository.updateCustomProvider(provider.copy(name = name.trim().ifBlank { provider.name }, baseUrl = baseUrl.trim()))
+        }
+    }
+
+    fun addKeySlot(providerId: Long) {
+        viewModelScope.launch { repository.addKeySlot(providerId) }
+    }
+
+    fun deleteKeySlot(keyId: Long, providerId: Long) {
+        viewModelScope.launch { repository.deleteKeySlot(keyId, providerId) }
+    }
+
+    fun setActiveKeySlot(keyId: Long, providerId: Long) {
+        viewModelScope.launch { repository.setActiveKeySlot(keyId, providerId) }
     }
 
     fun activateProviderModel(providerId: Long, modelId: String) {

@@ -60,6 +60,9 @@ class NoesisRepository(
     val providersFlow: Flow<List<AiProviderEntity>> = dao.observeProviders()
     val journalEntriesFlow: Flow<List<JournalEntryEntity>> = dao.observeJournalEntries()
 
+    fun observeKeysFlow(providerId: Long): Flow<List<AiProviderKeyEntity>> =
+        dao.observeProviderKeys(providerId)
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME_MODE] = mode.name }
     }
@@ -77,14 +80,14 @@ class NoesisRepository(
     }
 
     suspend fun seedInitialDataIfEmpty() = withContext(Dispatchers.IO) {
+        ensureHardcodedProviders()
         if (dao.getAllParticlesOnce().isEmpty()) {
             dao.insertParticles(defaultParticles())
         }
         if (dao.getAllZonesOnce().isEmpty()) {
             dao.insertZones(defaultZones())
         }
-        if (dao.getAllLogsOnce().isEmpty()) {
-            dao.insertSimulationLog(
+        if (dao.getAllLogsOnce().isEmpty()) {            dao.insertSimulationLog(
                 SimulationLogEntity(
                     userPrompt = "Como as minhas ideias e emoções atuais estão conversando entre si hoje?",
                     activeConceptsCsv = "Desejo, Medo, Tempo, Criatividade",
@@ -123,6 +126,122 @@ class NoesisRepository(
         return dao.insertProvider(provider)
     }
 
+    // ---------- Fase 2: slots de chave + provedores hardcoded ----------
+
+    /** Substitui {account_id} no endpoint (Cloudflare) pelo id do slot. */
+    fun resolveBaseUrl(baseUrl: String, accountId: String): String {
+        val clean = accountId.trim()
+        return if (baseUrl.contains("{account_id}")) baseUrl.replace("{account_id}", clean) else baseUrl
+    }
+
+    suspend fun getProviderKeys(providerId: Long): List<AiProviderKeyEntity> =
+        dao.getProviderKeysOnce(providerId)
+
+    suspend fun addKeySlot(providerId: Long): Long = withContext(Dispatchers.IO) {
+        val existing = dao.getProviderKeysOnce(providerId)
+        val next = (existing.maxOfOrNull { it.sortOrder } ?: -1) + 1
+        val id = dao.insertProviderKey(
+            AiProviderKeyEntity(
+                providerId = providerId,
+                label = "Chave ${existing.size + 1}",
+                apiKey = "",
+                accountId = "",
+                isActive = existing.none { it.isActive },
+                sortOrder = next
+            )
+        )
+        id
+    }
+
+    suspend fun updateKeySlot(key: AiProviderKeyEntity) = dao.updateProviderKey(key)
+
+    suspend fun deleteKeySlot(keyId: Long, providerId: Long) = withContext(Dispatchers.IO) {
+        dao.deleteProviderKey(keyId)
+        val remaining = dao.getProviderKeysOnce(providerId)
+        if (remaining.isNotEmpty() && remaining.none { it.isActive }) {
+            val first = remaining.minByOrNull { it.sortOrder }!!
+            dao.updateProviderKey(first.copy(isActive = true))
+        }
+    }
+
+    suspend fun setActiveKeySlot(keyId: Long, providerId: Long) = withContext(Dispatchers.IO) {
+        dao.deactivateProviderKeys(providerId)
+        dao.getProviderKeysOnce(providerId).firstOrNull { it.id == keyId }?.let {
+            dao.updateProviderKey(it.copy(isActive = true))
+        }
+    }
+
+    /** Provedor ativo + slot de chave ativo + URL resolvida, ou null (motor interno). */
+    suspend fun resolveActiveEngine(): Triple<AiProviderEntity, AiProviderKeyEntity, String>? =
+        withContext(Dispatchers.IO) {
+            val provider = dao.getAllProvidersOnce()
+                .firstOrNull { it.isActive && it.selectedModel.isNotBlank() } ?: return@withContext null
+            val key = dao.getProviderKeysOnce(provider.id)
+                .firstOrNull { it.isActive && it.apiKey.isNotBlank() } ?: return@withContext null
+            Triple(provider, key, resolveBaseUrl(provider.baseUrl, key.accountId))
+        }
+
+    /** Garante os 7 provedores hardcoded (nome/endpoint imutáveis); nunca duplica. */
+    suspend fun ensureHardcodedProviders() = withContext(Dispatchers.IO) {
+        val existing = dao.getAllProvidersOnce()
+        hardcodedProviders().forEachIndexed { index, def ->
+            val already = existing.firstOrNull {
+                it.baseUrl.equals(def.baseUrl, ignoreCase = true) || it.name.equals(def.name, ignoreCase = true)
+            }
+            if (already == null) {
+                val id = dao.insertProvider(
+                    AiProviderEntity(
+                        name = def.name,
+                        baseUrl = def.baseUrl,
+                        apiKey = "",
+                        verifiedModelsCsv = "",
+                        selectedModel = "",
+                        isActive = false,
+                        isCustom = false,
+                        sortOrder = index
+                    )
+                )
+                dao.insertProviderKey(
+                    AiProviderKeyEntity(
+                        providerId = id,
+                        label = "Chave 1",
+                        apiKey = "",
+                        accountId = "",
+                        isActive = true,
+                        sortOrder = 0
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun createCustomProvider(name: String, baseUrl: String): Long = withContext(Dispatchers.IO) {
+        val count = dao.getAllProvidersOnce().size
+        val id = dao.insertProvider(
+            AiProviderEntity(
+                name = name.trim().ifBlank { "Custom" },
+                baseUrl = baseUrl.trim(),
+                apiKey = "",
+                verifiedModelsCsv = "",
+                selectedModel = "",
+                isActive = false,
+                isCustom = true,
+                sortOrder = 100 + count
+            )
+        )
+        dao.insertProviderKey(
+            AiProviderKeyEntity(
+                providerId = id, label = "Chave 1", apiKey = "",
+                accountId = "", isActive = true, sortOrder = 0
+            )
+        )
+        id
+    }
+
+    suspend fun updateCustomProvider(provider: AiProviderEntity) {
+        if (provider.isCustom) dao.updateProvider(provider)
+    }
+
     suspend fun activateProviderModel(providerId: Long, model: String) {
         dao.deactivateAllProviders()
         dao.activateProviderModel(providerId, model)
@@ -132,7 +251,26 @@ class NoesisRepository(
         dao.deactivateAllProviders()
     }
 
-    suspend fun deleteProvider(id: Long) = dao.deleteProvider(id)
+    suspend fun deleteProvider(id: Long) = withContext(Dispatchers.IO) {
+        dao.deleteProviderKeysOf(id)
+        dao.deleteProvider(id)
+    }
+
+    suspend fun daoProviderById(id: Long): AiProviderEntity? = withContext(Dispatchers.IO) {
+        dao.getAllProvidersOnce().firstOrNull { it.id == id }
+    }
+
+    suspend fun findProviderByUrl(baseUrl: String): AiProviderEntity? = withContext(Dispatchers.IO) {
+        val clean = baseUrl.trim()
+        dao.getAllProvidersOnce().firstOrNull { it.baseUrl.equals(clean, ignoreCase = true) }
+    }
+
+    suspend fun updateKeySlot(key: AiProviderKeyEntity) = dao.updateProviderKey(key)
+
+    suspend fun updateProviderVerification(provider: AiProviderEntity) = withContext(Dispatchers.IO) {
+        if (provider.isActive) dao.deactivateAllProviders()
+        dao.updateProvider(provider)
+    }
 
     suspend fun exportBackupToUri(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         runCatching {
@@ -226,6 +364,7 @@ class NoesisRepository(
                 })
                 put("providers", JSONArray().apply {
                     providers.forEach { pr ->
+                        val keys = dao.getProviderKeysOnce(pr.id)
                         put(JSONObject().apply {
                             put("name", pr.name)
                             put("baseUrl", pr.baseUrl)
@@ -233,7 +372,20 @@ class NoesisRepository(
                             put("verifiedModelsCsv", pr.verifiedModelsCsv)
                             put("selectedModel", pr.selectedModel)
                             put("isActive", pr.isActive)
+                            put("isCustom", pr.isCustom)
+                            put("sortOrder", pr.sortOrder)
                             put("lastVerifiedAt", pr.lastVerifiedAt)
+                            put("keys", JSONArray().apply {
+                                keys.forEach { k ->
+                                    put(JSONObject().apply {
+                                        put("label", k.label)
+                                        put("apiKey", k.apiKey)
+                                        put("accountId", k.accountId)
+                                        put("isActive", k.isActive)
+                                        put("sortOrder", k.sortOrder)
+                                    })
+                                }
+                            })
                         })
                     }
                 })
@@ -376,10 +528,11 @@ class NoesisRepository(
             }
 
             root.optJSONArray("providers")?.let { arr ->
-                val list = mutableListOf<AiProviderEntity>()
+                dao.clearAllProviders()
+                dao.clearAllProviderKeys()
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    list.add(
+                    val newId = dao.insertProvider(
                         AiProviderEntity(
                             name = o.optString("name", "Custom"),
                             baseUrl = o.optString("baseUrl", ""),
@@ -387,14 +540,37 @@ class NoesisRepository(
                             verifiedModelsCsv = o.optString("verifiedModelsCsv", ""),
                             selectedModel = o.optString("selectedModel", ""),
                             isActive = o.optBoolean("isActive", false),
+                            isCustom = o.optBoolean("isCustom", true),
+                            sortOrder = o.optInt("sortOrder", 100 + i),
                             lastVerifiedAt = o.optLong("lastVerifiedAt", 0L)
                         )
                     )
+                    val keysArr = o.optJSONArray("keys")
+                    if (keysArr != null && keysArr.length() > 0) {
+                        for (j in 0 until keysArr.length()) {
+                            val k = keysArr.getJSONObject(j)
+                            dao.insertProviderKey(
+                                AiProviderKeyEntity(
+                                    providerId = newId,
+                                    label = k.optString("label", "Chave ${j + 1}"),
+                                    apiKey = k.optString("apiKey", ""),
+                                    accountId = k.optString("accountId", ""),
+                                    isActive = k.optBoolean("isActive", j == 0),
+                                    sortOrder = k.optInt("sortOrder", j)
+                                )
+                            )
+                        }
+                    } else if (o.optString("apiKey", "").isNotBlank()) {
+                        dao.insertProviderKey(
+                            AiProviderKeyEntity(
+                                providerId = newId, label = "Chave 1",
+                                apiKey = o.optString("apiKey", ""),
+                                accountId = "", isActive = true, sortOrder = 0
+                            )
+                        )
+                    }
                 }
-                dao.clearAllProviders()
-                if (list.isNotEmpty()) {
-                    dao.insertProviders(list)
-                }
+                ensureHardcodedProviders()
             }
 
             true
@@ -402,6 +578,19 @@ class NoesisRepository(
     }
 
     companion object {
+        data class HardcodedProviderDef(val name: String, val baseUrl: String)
+
+        /** Catálogo imutável Fase 2 (nome/endpoint travados; chaves por slot). */
+        fun hardcodedProviders(): List<HardcodedProviderDef> = listOf(
+            HardcodedProviderDef("Google AI Studio", "https://generativelanguage.googleapis.com/v1beta/openai"),
+            HardcodedProviderDef("OpenRouter", "https://openrouter.ai/api/v1"),
+            HardcodedProviderDef("Mistral AI Studio", "https://api.mistral.ai/v1"),
+            HardcodedProviderDef("Cerebras", "https://api.cerebras.ai/v1"),
+            HardcodedProviderDef("Groq", "https://api.groq.com/openai/v1"),
+            HardcodedProviderDef("Nvidia NIM", "https://integrate.api.nvidia.com/v1"),
+            HardcodedProviderDef("Cloudflare Workers AI", "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1")
+        )
+
         fun defaultParticles(): List<ConceptParticleEntity> = listOf(
             ConceptParticleEntity(
                 name = "Desejo",

@@ -9,6 +9,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -95,6 +97,34 @@ interface NoesisDao {
     @Query("DELETE FROM ai_providers")
     suspend fun clearAllProviders()
 
+    // AI Provider API Key Slots (Fase 2: múltiplas chaves por provedor)
+    @Query("SELECT * FROM ai_provider_keys WHERE providerId = :providerId ORDER BY sortOrder ASC, id ASC")
+    fun observeProviderKeys(providerId: Long): Flow<List<AiProviderKeyEntity>>
+
+    @Query("SELECT * FROM ai_provider_keys WHERE providerId = :providerId ORDER BY sortOrder ASC, id ASC")
+    suspend fun getProviderKeysOnce(providerId: Long): List<AiProviderKeyEntity>
+
+    @Query("SELECT * FROM ai_provider_keys")
+    suspend fun getAllKeysOnce(): List<AiProviderKeyEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProviderKey(key: AiProviderKeyEntity): Long
+
+    @Update
+    suspend fun updateProviderKey(key: AiProviderKeyEntity)
+
+    @Query("UPDATE ai_provider_keys SET isActive = 0 WHERE providerId = :providerId")
+    suspend fun deactivateProviderKeys(providerId: Long)
+
+    @Query("DELETE FROM ai_provider_keys WHERE id = :id")
+    suspend fun deleteProviderKey(id: Long)
+
+    @Query("DELETE FROM ai_provider_keys WHERE providerId = :providerId")
+    suspend fun deleteProviderKeysOf(providerId: Long)
+
+    @Query("DELETE FROM ai_provider_keys")
+    suspend fun clearAllProviderKeys()
+
     // Journal Entries ("Diário de Bordo")
     @Query("SELECT * FROM journal_entries ORDER BY timestamp DESC")
     fun observeJournalEntries(): Flow<List<JournalEntryEntity>>
@@ -121,9 +151,10 @@ interface NoesisDao {
         ArchitecturalZoneEntity::class,
         SimulationLogEntity::class,
         AiProviderEntity::class,
+        AiProviderKeyEntity::class,
         JournalEntryEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class NoesisDatabase : RoomDatabase() {
@@ -133,13 +164,39 @@ abstract class NoesisDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: NoesisDatabase? = null
 
+        // Migração 2 -> 3 sem perda: novas colunas + tabela de slots de chave.
+        // Chaves únicas legadas viram "Chave 1" do provedor.
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ai_providers ADD COLUMN isCustom INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE ai_providers ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS ai_provider_keys (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "providerId INTEGER NOT NULL, " +
+                        "label TEXT NOT NULL, " +
+                        "apiKey TEXT NOT NULL, " +
+                        "accountId TEXT NOT NULL DEFAULT '', " +
+                        "isActive INTEGER NOT NULL DEFAULT 0, " +
+                        "sortOrder INTEGER NOT NULL DEFAULT 0, " +
+                        "FOREIGN KEY(providerId) REFERENCES ai_providers(id) ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ai_provider_keys_providerId ON ai_provider_keys(providerId)")
+                db.execSQL(
+                    "INSERT INTO ai_provider_keys (providerId, label, apiKey, accountId, isActive, sortOrder) " +
+                        "SELECT id, 'Chave 1', apiKey, '', CASE WHEN apiKey <> '' THEN 1 ELSE 0 END, 0 " +
+                        "FROM ai_providers WHERE apiKey <> ''"
+                )
+            }
+        }
+
         fun getInstance(context: Context): NoesisDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     NoesisDatabase::class.java,
                     "noesis_conscious_lab.db"
-                ).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_2_3).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }
