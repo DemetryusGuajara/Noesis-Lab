@@ -2,7 +2,6 @@ package com.example.network
 
 import android.content.Context
 import android.util.Log
-import com.example.ai.LocalLlmEngine
 import com.example.util.AppLog
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
@@ -89,14 +88,7 @@ class GroundingAndAiService(private val context: Context) {
         .writeTimeout(6, TimeUnit.SECONDS)
         .build()
 
-    // Local LLM Engine (Qwen 2.5 1.5B via MediaPipe) - lazy init
-    private var localLlmEngine: LocalLlmEngine? = null
-    private fun getLocalLlm(): LocalLlmEngine {
-        if (localLlmEngine == null) {
-            localLlmEngine = LocalLlmEngine(context)
-        }
-        return localLlmEngine!!
-    }
+    // Local LLM removido (Tier 2 on-device morto por decisão de produto).
 
     /**
      * Computes the exact spatial and relational geometry of the user's spheres on the canvas:
@@ -699,66 +691,7 @@ class GroundingAndAiService(private val context: Context) {
             }
         }
 
-        // Tier 2: modelo Qwen (.task) no aparelho via MediaPipe.
-        // Só usa se o arquivo do slot escolhido já estiver presente — nunca
-        // baixa sozinho na hora da leitura (download só com consentimento:
-        // diálogo inicial ou botão em Ajustes).
-        val localLlm = getLocalLlm()
-        AppLog.i("sim", "tier1 miss (byok=$hasActiveByok) trying on-device slot downloaded=${localLlm.isModelDownloaded()}")
-        val watchdogDeath = AppLog.checkGenMarker()
-        if (watchdogDeath != null) {
-            AppLog.w("sim", "skipping on-device this session, previous native death ($watchdogDeath)")
-        }
-        if (!hasActiveByok && watchdogDeath == null && localLlm.isModelDownloaded()) {
-            onStageProgress(
-                when (languageCode.lowercase()) {
-                    "en" -> "3/3 · Generating deep reflection via on-device ${localLlm.slotLabel()}..."
-                    "es" -> "3/3 · Generando reflexión profunda con ${localLlm.slotLabel()} en el dispositivo..."
-                    "fr" -> "3/3 · Réflexion profonde via ${localLlm.slotLabel()} local..."
-                    else -> "3/3 · Gerando reflexão profunda via ${localLlm.slotLabel()} no aparelho..."
-                }
-            )
-
-            val initResult = localLlm.initialize()
-            if (initResult.isSuccess) {
-                AppLog.markGenStart("generate slot=${localLlm.slotLabel()}")
-                val localText = localLlm.generate(
-                    systemPrompt = masterSystemPrompt,
-                    userMessage = userMessage
-                ).getOrNull()
-                AppLog.clearGenMarker()
-
-                if (localText != null && localText.length > 30) {
-                    val parts = localText.split("---SOMATIC---")
-                    val mainNarrative = parts[0].trim()
-                    val somatic = if (parts.size > 1 && parts[1].isNotBlank()) {
-                        parts[1].trim()
-                    } else {
-                        buildDeepSomaticPractice(
-                            languageCode = languageCode,
-                            arousal = arousal,
-                            valence = valence,
-                            focus = focus,
-                            concepts = titleCasedConcepts,
-                            topology = topology,
-                            userPrompt = userPrompt,
-                            seed = System.currentTimeMillis()
-                        )
-                    }
-                    AppLog.i("sim", "tier=on-device ok slot='${localLlm.slotLabel()}'")
-                    return@withContext OrchestratedSimulationResult(
-                        narrativeMarkdown = mainNarrative,
-                        somaticShiftSuggestion = somatic,
-                        providerLabel = "${localLlm.slotLabel()} no Aparelho",
-                        grounding = grounding
-                    )
-                }
-            } else {
-                Log.w("GroundingAndAiService", "Modelo no aparelho falhou: ${initResult.exceptionOrNull()?.message}")
-            }
-        }
-
-        // Tier 3: Autonomous On-Device Dialectical Phenomenological Engine
+        // Tier 2: Motor Interno (Dialético + Pesquisa Enciclopédica)
         onStageProgress(
             when (languageCode.lowercase()) {
                 "en" -> "3/3 · Synthesizing deep phenomenological insights and somatic reconfiguration..."
@@ -796,7 +729,7 @@ class GroundingAndAiService(private val context: Context) {
         OrchestratedSimulationResult(
             narrativeMarkdown = synthesized,
             somaticShiftSuggestion = somatic,
-            providerLabel = "Motor Dialético Profundo + Pesquisa Enciclopédica",
+            providerLabel = "Motor Interno",
             grounding = grounding
         )
     }
@@ -862,7 +795,7 @@ class GroundingAndAiService(private val context: Context) {
         }.getOrNull()
     }
 
-    // ---------- Bancos de variedade do motor combinatório (Tier 3) ----------
+    // ---------- Bancos de variedade do motor combinatório (Tier 2 interno) ----------
     // Cada leitura sorteia (seed = timestamp) aberturas, metáforas e módulos,
     // de modo que duas leituras nunca tenham a mesma forma — mesmo com as
     // mesmas esferas. Variedade combinatória real; criação livre exige LLM.

@@ -56,9 +56,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -70,16 +67,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.screens.ArchitecturalMapScreen
 import com.example.ui.screens.FieldSimulationScreen
-import com.example.ui.screens.ModelSetupDialog
 import com.example.ui.screens.NarrativeOracleScreen
 import com.example.ui.screens.SystemsAndByokScreen
-import com.example.ai.LlmPrefs
-import com.example.ai.LocalLlmEngine
 import com.example.ui.theme.NoesisTheme
 import com.example.viewmodel.NoesisTab
 import com.example.viewmodel.NoesisViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -174,27 +166,6 @@ fun NoesisAppShell(
                     Text(strings.guideCloseButton)
                 }
             }
-        )
-    }
-
-    // First-run neural model setup (first screen only, skipped when dismissed,
-    // when a BYOK provider is active, or when a .task model is already present).
-    val shellContext = LocalContext.current
-    var modelDialogVisible by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(uiState.currentTab) {
-        if (uiState.currentTab == NoesisTab.FIELD && modelDialogVisible == null) {
-            val dismissed = LlmPrefs.isNoticeDismissed(shellContext)
-            val hasByok = uiState.providers.any { it.isActive && it.selectedModel.isNotBlank() }
-            val hasTask = withContext(Dispatchers.IO) {
-                runCatching { LocalLlmEngine(shellContext).isModelDownloaded() }.getOrDefault(false)
-            }
-            modelDialogVisible = !dismissed && !hasByok && !hasTask
-        }
-    }
-    if (modelDialogVisible == true) {
-        ModelSetupDialog(
-            strings = strings,
-            onClose = { modelDialogVisible = false }
         )
     }
 

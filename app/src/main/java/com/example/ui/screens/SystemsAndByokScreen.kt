@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -87,8 +86,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.ai.LocalLlmEngine
-import com.example.ai.LlmPrefs
 import com.example.BuildConfig
 import com.example.R
 import com.example.data.JournalEntryEntity
@@ -457,20 +454,6 @@ fun SystemsAndByokScreen(
                     }
                 }
             }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Section 3.5: Modelo Qwen no aparelho (.task MediaPipe)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("local_llm_card"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-        ) {
-            LocalLlmManagerCard(strings = strings)
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1246,311 +1229,6 @@ private data class SnapshotParticle(
 )
 
 /**
- * On-device model manager: Qwen .task slots (full ~1.6 GB / lite ~550 MB),
- * internal/SD storage choice (SD only when detected), download with progress,
- * .task import from file picker, delete.
- */
-@Composable
-private fun LocalLlmManagerCard(
-    strings: com.example.i18n.StringsCatalog,
-) {
-    val context = LocalContext.current
-    val localLlm = remember { LocalLlmEngine(context) }
-    var state by remember { mutableStateOf<LocalLlmEngine.State>(LocalLlmEngine.State.NotStarted) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-
-    var storage by remember { mutableStateOf(LlmPrefs.getStorage(context)) }
-    var slot by remember { mutableStateOf(LlmPrefs.getSlot(context)) }
-    var backend by remember { mutableStateOf(LlmPrefs.getBackend(context)) }
-    val hasSd = remember { localLlm.hasSdCard() }
-
-    LaunchedEffect(localLlm) {
-        localLlm.onStateChange = { newState -> state = newState }
-        if (localLlm.isModelDownloaded()) state = LocalLlmEngine.State.Ready
-    }
-
-    LaunchedEffect(slot, storage) {
-        LlmPrefs.setSlot(context, slot)
-        LlmPrefs.setStorage(context, storage)
-        state = if (localLlm.isModelDownloaded()) {
-            LocalLlmEngine.State.Ready
-        } else {
-            LocalLlmEngine.State.NotStarted
-        }
-    }
-
-    val currentState = state
-    val isBusy = currentState is LocalLlmEngine.State.Downloading ||
-        currentState is LocalLlmEngine.State.Initializing
-    val isReady = currentState is LocalLlmEngine.State.Ready
-    val errorMessage = (currentState as? LocalLlmEngine.State.Error)?.message
-    val downloadProgress = when (currentState) {
-        is LocalLlmEngine.State.Downloading -> currentState.progress
-        is LocalLlmEngine.State.Initializing -> currentState.progress
-        else -> 0f
-    }
-    val downloadedMb = (currentState as? LocalLlmEngine.State.Downloading)?.downloadedMb ?: 0L
-    val totalMb = (currentState as? LocalLlmEngine.State.Downloading)?.totalMb ?: 0L
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        coroutineScope.launch {
-            try {
-                var size = -1L
-                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                    val idx = c.getColumnIndex(OpenableColumns.SIZE)
-                    if (idx >= 0 && c.moveToFirst()) size = c.getLong(idx)
-                }
-                val stream = context.contentResolver.openInputStream(uri)
-                if (stream == null) {
-                    state = LocalLlmEngine.State.Error("Não foi possível abrir o arquivo.")
-                } else {
-                    localLlm.importFromStream(stream, size)
-                }
-            } catch (e: Exception) {
-                state = LocalLlmEngine.State.Error(e.message ?: "falha na importação")
-            }
-        }
-    }
-
-    Column(modifier = Modifier.padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.CloudDownload,
-                contentDescription = "Modelo no aparelho",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Modelo Neural no Aparelho (LiteRT-LM)",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Vários modelos podem ficar baixados juntos; escolha o ativo. Roda 100% offline. Use Wi-Fi.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = slot == LlmPrefs.SLOT_360,
-                onClick = { slot = LlmPrefs.SLOT_360 },
-                label = { Text("360M") }
-            )
-            FilterChip(
-                selected = slot == LlmPrefs.SLOT_135,
-                onClick = { slot = LlmPrefs.SLOT_135 },
-                label = { Text("135M") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Motor:",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            FilterChip(
-                selected = backend == LlmPrefs.BACKEND_CPU,
-                onClick = {
-                    backend = LlmPrefs.BACKEND_CPU
-                    LlmPrefs.setBackend(context, backend)
-                    localLlm.release()
-                    state = LocalLlmEngine.State.NotStarted
-                },
-                label = { Text("CPU") }
-            )
-            FilterChip(
-                selected = backend == LlmPrefs.BACKEND_GPU,
-                onClick = {
-                    backend = LlmPrefs.BACKEND_GPU
-                    LlmPrefs.setBackend(context, backend)
-                    localLlm.release()
-                    state = LocalLlmEngine.State.NotStarted
-                },
-                label = { Text("GPU") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = storage == LlmPrefs.STORAGE_INTERNAL,
-                onClick = { storage = LlmPrefs.STORAGE_INTERNAL },
-                label = { Text("Interno") }
-            )
-            if (hasSd) {
-                FilterChip(
-                    selected = storage == LlmPrefs.STORAGE_SD,
-                    onClick = { storage = LlmPrefs.STORAGE_SD },
-                    label = { Text("Cartão SD") }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        AnimatedVisibility(visible = errorMessage != null) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
-            ) {
-                Text(
-                    text = "⚠ $errorMessage",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = isReady) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "✅ ${localLlm.slotLabel()} pronto (${localLlm.getModelSizeMb()} MB, ${localLlm.getStorageLabel()})",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                        Text(
-                            text = "Usado automaticamente nas leituras (sem BYOK).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { showDeleteConfirm = true },
-                        modifier = Modifier.testTag("delete_local_model_button"),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
-                    ) {
-                        Text(text = "Remover", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-
-        AnimatedVisibility(visible = isBusy) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                if (downloadProgress >= 0f) {
-                    LinearProgressIndicator(
-                        progress = { downloadProgress.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (totalMb > 0 && downloadProgress >= 0f) {
-                        "Baixando... ${(downloadProgress * 100).toInt()}% ($downloadedMb / $totalMb MB)"
-                    } else if (downloadProgress >= 0f) {
-                        "Baixando... ${(downloadProgress * 100).toInt()}%"
-                    } else {
-                        "Trabalhando no modelo..."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (!isReady && !isBusy) {
-                Button(
-                    onClick = {
-                        coroutineScope.launch { localLlm.initialize() }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("download_local_model_button"),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = "Baixar modelo",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Baixar", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-            if (!isBusy) {
-                OutlinedButton(
-                    onClick = { importLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Importar .task")
-                }
-            }
-        }
-
-        if (showDeleteConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("Remover modelo") },
-                text = {
-                    Text("O modelo (${localLlm.getModelSizeMb()} MB) será removido. Você poderá baixá-lo de novo quando quiser.")
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showDeleteConfirm = false
-                            localLlm.deleteModel()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
-                    ) { Text("Remover") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
-                }
-            )
-        }
-    }
-}
-
-/**
  * Diagnostics card: constant-watch status plus one-tap log export.
  * After a crash, reopen the app, export here and save the document anywhere.
  */
@@ -1702,7 +1380,7 @@ private fun writeDiagnosticsReport(
     sb.appendLine("gerado em: $ts")
     sb.appendLine("app: ${devAppVersion(context)}")
     sb.appendLine("device: ${Build.BRAND} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
-    sb.appendLine("slot=${LlmPrefs.getSlot(context)} storage=${LlmPrefs.getStorage(context)}")
+    sb.appendLine("motor: Tier 1 BYOK + Tier 2 interno (on-device removido)")
     sb.appendLine("provedores: " + if (providerSummaries.isEmpty()) "(nenhum)" else providerSummaries.joinToString(" | "))
     sb.appendLine()
     sb.appendLine("=== anel AppLog (${AppLog.snapshot().size} linhas) ===")
