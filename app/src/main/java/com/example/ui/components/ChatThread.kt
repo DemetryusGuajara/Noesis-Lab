@@ -18,6 +18,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -44,21 +45,22 @@ import com.example.ui.screens.FormattedMarkdownText
 fun ChatThread(
     messages: List<ChatMessageEntity>,
     sendEnabled: Boolean,
+    isSimulating: Boolean,
+    progressText: String,
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var replyLocal by rememberSaveable { mutableStateOf("") }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Continuar conversando",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+    // The reading card/article already shows the first assistant message: never repeat it here.
+    val visible = remember(messages) {
+        val firstAssistant = messages.indexOfFirst { it.role == "assistant" }
+        if (firstAssistant >= 0) messages.filterIndexed { i, _ -> i != firstAssistant }
+        else messages
+    }
 
-        messages.forEach { m ->
+    Column(modifier = modifier.fillMaxWidth()) {
+        visible.forEach { m ->
             if (m.role == "user") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -112,6 +114,16 @@ fun ChatThread(
         }
 
         Spacer(modifier = Modifier.height(4.dp))
+        if (isSimulating) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = progressText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Bottom

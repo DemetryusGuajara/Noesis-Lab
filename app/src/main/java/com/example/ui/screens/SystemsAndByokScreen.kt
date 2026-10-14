@@ -32,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -42,6 +41,8 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Palette
@@ -124,7 +125,6 @@ fun SystemsAndByokScreen(
     uiState: NoesisUiState,
     onSelectTheme: (ThemeMode) -> Unit,
     onSelectLanguage: (AppLanguage) -> Unit,
-    onSaveCurrentStateToJournal: () -> Unit,
     onOpenJournalEntry: (JournalEntryEntity?) -> Unit,
     onDeleteJournalEntry: (Long) -> Unit,
     onVerifyKeySlot: (Long, Long, String, String) -> Unit,
@@ -144,6 +144,7 @@ fun SystemsAndByokScreen(
 ) {
     val strings = uiState.strings
     var journalDropdownExpanded by remember { mutableStateOf(false) }
+    var expandedProviderId by remember { mutableStateOf<Long?>(null) }
 
     val isDark = when (uiState.preferences.themeMode) {
         ThemeMode.DARK -> true
@@ -173,6 +174,7 @@ fun SystemsAndByokScreen(
             isDark = isDark,
             threadMessages = entryThread,
             isSimulating = uiState.isSimulating,
+            progressText = uiState.simulationProgressText,
             onSendReply = { text -> onSendThreadReply(entry.id, text) },
             onClose = { onOpenJournalEntry(null) },
             onDelete = { onDeleteJournalEntry(entry.id) }
@@ -216,28 +218,6 @@ fun SystemsAndByokScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = onSaveCurrentStateToJournal,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("save_state_to_journal_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.BookmarkAdd,
-                        contentDescription = strings.saveCurrentStateToJournalButton,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.saveCurrentStateToJournalButton)
-                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -543,25 +523,27 @@ fun SystemsAndByokScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Book,
-                        contentDescription = "Tutoriais de chaves grátis",
+                        contentDescription = strings.byokTutorialButton,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tutoriais de chaves grátis")
+                    Text(strings.byokTutorialButton)
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Provedores com free tier (endereços fixos)",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
 
                 uiState.providers.filter { !it.isCustom }.sortedBy { it.sortOrder }.forEach { provider ->
                     key(provider.id) {
-                        ProviderKeysCard(
+                        ExpandableProvider(
+                            title = provider.name,
+                            isActive = provider.isActive,
+                            expanded = expandedProviderId == provider.id,
+                            onToggle = {
+                                expandedProviderId =
+                                    if (expandedProviderId == provider.id) null else provider.id
+                            }
+                        ) {
+                            ProviderKeysCard(
                             provider = provider,
                             strings = strings,
                             locked = true,
@@ -577,6 +559,7 @@ fun SystemsAndByokScreen(
                             onDeleteProvider = null,
                             onSaveCustom = null
                         )
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -635,7 +618,16 @@ fun SystemsAndByokScreen(
                 Spacer(modifier = Modifier.height(6.dp))
                 uiState.providers.filter { it.isCustom }.forEach { provider ->
                     key(provider.id) {
-                        ProviderKeysCard(
+                        ExpandableProvider(
+                            title = provider.name,
+                            isActive = provider.isActive,
+                            expanded = expandedProviderId == provider.id,
+                            onToggle = {
+                                expandedProviderId =
+                                    if (expandedProviderId == provider.id) null else provider.id
+                            }
+                        ) {
+                            ProviderKeysCard(
                             provider = provider,
                             strings = strings,
                             locked = false,
@@ -651,6 +643,7 @@ fun SystemsAndByokScreen(
                             onDeleteProvider = { onDeleteProvider(provider.id) },
                             onSaveCustom = { name, url -> onUpdateCustomProvider(provider.id, name, url) }
                         )
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -841,6 +834,7 @@ private fun JournalArticleModal(
     isDark: Boolean,
     threadMessages: List<ChatMessageEntity>,
     isSimulating: Boolean,
+    progressText: String,
     onSendReply: (String) -> Unit,
     onClose: () -> Unit,
     onDelete: () -> Unit
@@ -1119,6 +1113,8 @@ private fun JournalArticleModal(
                 ChatThread(
                     messages = threadMessages,
                     sendEnabled = !isSimulating,
+                    isSimulating = isSimulating,
+                    progressText = progressText,
                     onSend = onSendReply
                 )
 
@@ -1644,6 +1640,72 @@ private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Un
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Adicionar provedor")
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible provider row (Fase 2 item 6): tap the name to expand/collapse.
+ * Only one open at a time; tapping the open one collapses everything.
+ */
+@Composable
+private fun ExpandableProvider(
+    title: String,
+    isActive: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            border = BorderStroke(
+                1.dp,
+                if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+            ),
+            onClick = onToggle
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isActive) {
+                        Text(
+                            text = "● ",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        AnimatedVisibility(visible = expanded) {
+            Column(modifier = Modifier.padding(top = 4.dp)) {
+                content()
             }
         }
     }

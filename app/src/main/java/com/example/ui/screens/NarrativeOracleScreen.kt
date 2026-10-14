@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,7 +66,8 @@ fun NarrativeOracleScreen(
     onUpdateDraftPrompt: (String) -> Unit,
     onRunSimulation: (String) -> Unit,
     threadMessagesFlow: Flow<List<ChatMessageEntity>>,
-    onSendThreadReply: (Long, String) -> Unit
+    onSendThreadReply: (Long, String) -> Unit,
+    onStartNewSession: () -> Unit
 ) {
     val strings = uiState.strings
     val prefs = uiState.preferences
@@ -429,6 +431,8 @@ fun NarrativeOracleScreen(
                 ChatThread(
                     messages = threadMessages,
                     sendEnabled = !uiState.isSimulating,
+                    isSimulating = uiState.isSimulating,
+                    progressText = uiState.simulationProgressText,
                     onSend = { onSendThreadReply(threadId, it) }
                 )
             }
@@ -448,6 +452,26 @@ fun NarrativeOracleScreen(
                     modifier = Modifier.padding(16.dp)
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        OutlinedButton(
+            onClick = onStartNewSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("new_session_button_oracle"),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = strings.newSessionButton,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = strings.newSessionButton, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

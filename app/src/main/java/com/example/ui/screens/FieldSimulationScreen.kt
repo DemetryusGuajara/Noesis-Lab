@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -98,7 +99,8 @@ fun FieldSimulationScreen(
     onInjectConcept: (String, String) -> Unit,
     onRemoveParticle: (Long) -> Unit,
     onResetParticles: () -> Unit,
-    onCollideAndSynthesize: () -> Unit
+    onCollideAndSynthesize: () -> Unit,
+    onStartNewSession: () -> Unit
 ) {
     val strings = uiState.strings
     var customConceptInput by remember { mutableStateOf("") }
@@ -126,8 +128,9 @@ fun FieldSimulationScreen(
     val selectedParticle = uiState.particles.find { it.id == uiState.selectedParticleId }
         ?: uiState.particles.firstOrNull()
 
+    // Animation state read ONLY inside draw scope (no per-frame recomposition).
     val infiniteTransition = rememberInfiniteTransition(label = "field_wave")
-    val wavePhase by infiniteTransition.animateFloat(
+    val wavePhaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2f * PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -138,6 +141,21 @@ fun FieldSimulationScreen(
     )
 
     val textMeasurer = rememberTextMeasurer()
+    // Label layouts are expensive to measure: cache per (name, selected, color).
+    val labelCache = remember { mutableMapOf<Triple<String, Boolean, Color>, TextLayoutResult>() }
+    fun labelLayout(name: String, selected: Boolean, color: Color): TextLayoutResult {
+        val key = Triple(name, selected, color)
+        return labelCache.getOrPut(key) {
+            textMeasurer.measure(
+                text = name,
+                style = TextStyle(
+                    color = color,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                )
+            )
+        }
+    }
 
     val moodScore = uiState.meanHeaviness * 0.55f +
         uiState.preferences.bioArousal * 0.30f +
@@ -390,7 +408,7 @@ fun FieldSimulationScreen(
 
                     // 2. Subtle Horizon Rings
                     for (ring in 1..3) {
-                        val radius = (minOf(w, h) * 0.15f * ring) + sin(wavePhase + ring) * 3f
+                        val radius = (minOf(w, h) * 0.15f * ring) + sin(wavePhaseState.value + ring) * 3f
                         drawCircle(
                             color = gridLineColor,
                             radius = radius,
@@ -457,7 +475,7 @@ fun FieldSimulationScreen(
                                     )
                                     drawCircle(
                                         color = midColor.copy(alpha = 0.90f),
-                                        radius = (4.5f + sin(wavePhase * 2f) * 2f).dp.toPx(),
+                                        radius = (4.5f + sin(wavePhaseState.value * 2f) * 2f).dp.toPx(),
                                         center = mid
                                     )
                                 }
@@ -475,7 +493,7 @@ fun FieldSimulationScreen(
                             isDarkTheme = isDark
                         )
                         val isSelected = p.id == selectedParticle?.id || p.id == activeDraggingId
-                        val pulse = sin(wavePhase * (1f + abs(p.spin) * 0.35f) + idx)
+                        val pulse = sin(wavePhaseState.value * (1f + abs(p.spin) * 0.35f) + idx)
                         val coreRadius = (16f + p.mass * 6f).dp.toPx()
                         val haloRadius = coreRadius * (1.45f + pulse * 0.12f)
 
@@ -488,7 +506,7 @@ fun FieldSimulationScreen(
                             )
                         }
 
-                        val orbitAngle = wavePhase * (if (p.spin >= 0f) 1.4f else -1.4f) + idx
+                        val orbitAngle = wavePhaseState.value * (if (p.spin >= 0f) 1.4f else -1.4f) + idx
                         val satOffset = Offset(
                             x = pos.x + cos(orbitAngle) * (coreRadius * 1.3f),
                             y = pos.y + sin(orbitAngle) * (coreRadius * 1.3f)
@@ -512,14 +530,7 @@ fun FieldSimulationScreen(
                         )
 
                         val cleanLabel = formatConceptTitleCase(p.name)
-                        val textLayout = textMeasurer.measure(
-                            text = cleanLabel,
-                            style = TextStyle(
-                                color = labelColor,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        )
+                        val textLayout = labelLayout(cleanLabel, isSelected, labelColor)
                         drawText(
                             textLayoutResult = textLayout,
                             topLeft = Offset(
@@ -814,6 +825,26 @@ fun FieldSimulationScreen(
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        OutlinedButton(
+            onClick = onStartNewSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("new_session_button_field"),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = strings.newSessionButton,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = strings.newSessionButton, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

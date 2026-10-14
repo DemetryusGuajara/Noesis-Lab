@@ -34,7 +34,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
@@ -163,10 +165,13 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 posY = p.posY
             )
         }
-        soundEngine.updateModularFieldState(
-            nodes = acousticNodes,
-            arousal = prefs.bioArousal
-        )
+        // Audio engine sync runs off the main thread (was janking typing/scroll).
+        withContext(Dispatchers.Default) {
+            soundEngine.updateModularFieldState(
+                nodes = acousticNodes,
+                arousal = prefs.bioArousal
+            )
+        }
 
         val meanFreq = if (acousticNodes.isNotEmpty()) {
             acousticNodes.map { it.computeBaseFrequencyHz() }.average().toFloat()
@@ -621,89 +626,50 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
      * user prompt notes, and latest reflection into the "Diário de Bordo" (Item 16).
      */
     fun saveCurrentStateToJournal() {
-        val state = uiState.value
         viewModelScope.launch {
-            val particlesJson = JSONArray().apply {
-                state.particles.forEach { p ->
-                    put(JSONObject().apply {
-                        put("name", formatConceptTitleCase(p.name))
-                        put("mass", p.mass.toDouble())
-                        put("charge", p.charge.toDouble())
-                        put("posX", p.posX.toDouble())
-                        put("posY", p.posY.toDouble())
-                    })
-                }
-            }.toString()
-
-            val zonesJson = JSONArray().apply {
-                state.diagnosedZones.forEach { dz ->
-                    put(JSONObject().apply {
-                        put("customTitle", dz.zone.customTitle)
-                        put("conceptDomain", dz.zone.conceptDomain)
-                        put("geometryType", dz.zone.geometryType)
-                        put("mapX", dz.zone.mapX.toDouble())
-                        put("mapY", dz.zone.mapY.toDouble())
-                        put("clarity", dz.diagnosedClarity.toDouble())
-                        put("pressure", dz.diagnosedPressure.toDouble())
-                        put("empiricalInterpretation", dz.empiricalInterpretation)
-                    })
-                }
-            }.toString()
-
-            val latestLog = state.currentSessionReading
-            val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
-                .ifBlank { "Estado Mental" }
-
-            val userNotes = state.currentDraftPrompt.takeIf { it.isNotBlank() }
-                ?: latestLog?.userPrompt
-                ?: ""
-
-            val narrative = latestLog?.narrativeResponse ?: "Snapshot salvo diretamente do campo gravitacional."
-            val somatic = latestLog?.somaticSuggestion ?: ""
-
-            val newId = repository.addJournalEntry(
-                JournalEntryEntity(
-                    timestamp = System.currentTimeMillis(),
-                    titleSummary = conceptTitleSummary,
-                    particlesSnapshotJson = particlesJson,
-                    zonesSnapshotJson = zonesJson,
-                    userNotesPrompt = userNotes,
-                    narrativeText = narrative,
-                    somaticExerciseText = somatic,
-                    bioArousal = state.preferences.bioArousal,
-                    bioValence = state.preferences.bioValence,
-                    bioFocus = state.preferences.bioFocus
-                )
-            )
-
-            _statusBannerMessage.value = state.strings.journalSavedToast
+            persistJournalSnapshot(uiState.value)
+            _statusBannerMessage.value = uiState.value.strings.journalSavedToast
         }
     }
 
-    fun chatMessagesFlow(entryId: Long?): Flow<List<ChatMessageEntity>> =
-        if (entryId == null) flowOf(emptyList()) else repository.observeChatMessages(entryId)
-
     /**
-     * Fase 3: salva automaticamente toda leitura como thread de chat do diário
-     * (snapshot imutável + primeira mensagem da assistente) e devolve o entryId.
+     * Item 7: inicia uma nova sessão limpa. O estado atual já é salvo
+     * automaticamente a cada resposta; aqui garante o snapshot e reseta o campo.
      */
-    private suspend fun autoSaveThreadFromReading(
-        prompt: String,
-        narrative: String,
-        somatic: String
-    ): Long {
-        val state = uiState.value
+    fun startNewSession() {
+        viewModelScope.launch {
+            val state = uiState.value
+            if (state.particles.isNotEmpty()) {
+                persistJournalSnapshot(state)
+            }
+            repository.resetParticlesToDefault()
+            _currentDraftPrompt.value = ""
+            _currentSessionReading.value = null
+            _currentThreadId.value = null
+            _currentTab.value = NoesisTab.FIELD
+            _statusBannerMessage.value = state.strings.newSessionStartedToast
+        }
+    }
+
+    private suspend fun persistJournalSnapshot(state: NoesisUiState): Long {
         val particlesJson = JSONArray().apply {
             state.particles.forEach { p ->
                 put(JSONObject().apply {
                     put("name", formatConceptTitleCase(p.name))
                     put("mass", p.mass.toDouble())
                     put("charge", p.charge.toDouble())
+                    put("frequencyHz", 320.0)
+                    put("spin", 0.5)
                     put("posX", p.posX.toDouble())
                     put("posY", p.posY.toDouble())
+                    put("colorHex", 0xFFD97757)
+                    put("philosophicalNote", "")
+                    put("createdAt", System.currentTimeMillis())
+                    put("archetypeKey", "CUSTOM")
                 })
             }
         }.toString()
+
         val zonesJson = JSONArray().apply {
             state.diagnosedZones.forEach { dz ->
                 put(JSONObject().apply {
@@ -715,15 +681,23 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 })
             }
         }.toString()
+
         val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
             .ifBlank { "Estado Mental" }
-        val newId = repository.addJournalEntry(
+        val latestLog = state.currentSessionReading
+        val userNotes = state.currentDraftPrompt.takeIf { it.isNotBlank() }
+            ?: latestLog?.userPrompt
+            ?: ""
+        val narrative = latestLog?.narrativeResponse ?: "Snapshot salvo diretamente do campo gravitacional."
+        val somatic = latestLog?.somaticSuggestion ?: ""
+
+        return repository.addJournalEntry(
             JournalEntryEntity(
                 timestamp = System.currentTimeMillis(),
                 titleSummary = conceptTitleSummary,
                 particlesSnapshotJson = particlesJson,
                 zonesSnapshotJson = zonesJson,
-                userNotesPrompt = prompt,
+                userNotesPrompt = userNotes,
                 narrativeText = narrative,
                 somaticExerciseText = somatic,
                 bioArousal = state.preferences.bioArousal,
@@ -731,6 +705,17 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 bioFocus = state.preferences.bioFocus
             )
         )
+    }
+
+    fun chatMessagesFlow(entryId: Long?): Flow<List<ChatMessageEntity>> =
+        if (entryId == null) flowOf(emptyList()) else repository.observeChatMessages(entryId)
+
+    private suspend fun autoSaveThreadFromReading(
+        prompt: String,
+        narrative: String,
+        somatic: String
+    ): Long {
+        val newId = persistJournalSnapshot(uiState.value)
         repository.addChatMessage(
             ChatMessageEntity(
                 entryId = newId,

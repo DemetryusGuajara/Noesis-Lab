@@ -277,12 +277,14 @@ fun NoesisAppShell(
                     onInjectConcept = viewModel::injectConceptParticle,
                     onRemoveParticle = viewModel::removeParticle,
                     onResetParticles = viewModel::resetFieldParticles,
-                    onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) }
+                    onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) },
+                    onStartNewSession = viewModel::startNewSession
                 )
 
                 NoesisTab.ARCHITECTURE -> ArchitecturalMapScreen(
                     uiState = uiState,
-                    onSelectZone = viewModel::selectArchitecturalZone
+                    onSelectZone = viewModel::selectArchitecturalZone,
+                    onStartNewSession = viewModel::startNewSession
                 )
 
                 NoesisTab.ORACLE -> NarrativeOracleScreen(
@@ -291,14 +293,14 @@ fun NoesisAppShell(
                     onUpdateDraftPrompt = viewModel::updateDraftPrompt,
                     onRunSimulation = { prompt -> viewModel.collideAndRunSimulation(prompt) },
                     threadMessagesFlow = viewModel.chatMessagesFlow(uiState.currentThreadId),
-                    onSendThreadReply = viewModel::sendThreadReply
+                    onSendThreadReply = viewModel::sendThreadReply,
+                    onStartNewSession = viewModel::startNewSession
                 )
 
                 NoesisTab.SETTINGS -> SystemsAndByokScreen(
                     uiState = uiState,
                     onSelectTheme = viewModel::setThemeMode,
                     onSelectLanguage = viewModel::setLanguage,
-                    onSaveCurrentStateToJournal = viewModel::saveCurrentStateToJournal,
                     onOpenJournalEntry = viewModel::openJournalEntry,
                     onDeleteJournalEntry = viewModel::deleteJournalEntry,
                     onVerifyKeySlot = viewModel::verifyKeySlot,

@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,10 +38,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,7 +77,8 @@ import kotlin.math.sin
 @Composable
 fun ArchitecturalMapScreen(
     uiState: NoesisUiState,
-    onSelectZone: (String) -> Unit
+    onSelectZone: (String) -> Unit,
+    onStartNewSession: () -> Unit
 ) {
     val strings = uiState.strings
 
@@ -84,7 +86,7 @@ fun ArchitecturalMapScreen(
         ?: uiState.diagnosedZones.firstOrNull()
 
     val infiniteTransition = rememberInfiniteTransition(label = "arch_pulse")
-    val archPhase by infiniteTransition.animateFloat(
+    val archPhaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2f * PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -229,7 +231,7 @@ fun ArchitecturalMapScreen(
                                     start = start,
                                     end = end,
                                     strokeWidth = 2.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), archPhase * 8f)
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), archPhaseState.value * 8f)
                                 )
                             }
                         }
@@ -276,7 +278,7 @@ fun ArchitecturalMapScreen(
                                 for (r in 1..3) {
                                     drawCircle(
                                         color = strokeColor.copy(alpha = 0.3f * r),
-                                        radius = chamberRadius * (0.4f * r) + sin(archPhase) * 3f,
+                                        radius = chamberRadius * (0.4f * r) + sin(archPhaseState.value) * 3f,
                                         center = center,
                                         style = Stroke(width = 2.dp.toPx())
                                     )
@@ -285,7 +287,7 @@ fun ArchitecturalMapScreen(
                             "TOWER", "LATTICE" -> {
                                 val hexPath = Path()
                                 for (i in 0..5) {
-                                    val angle = (i * 60.0 + (if (isSelected) archPhase * 15.0 else 0.0)) * PI / 180.0
+                                    val angle = (i * 60.0 + (if (isSelected) archPhaseState.value * 15.0 else 0.0)) * PI / 180.0
                                     val px = center.x + cos(angle).toFloat() * chamberRadius
                                     val py = center.y + sin(angle).toFloat() * chamberRadius
                                     if (i == 0) hexPath.moveTo(px, py) else hexPath.lineTo(px, py)
@@ -317,7 +319,7 @@ fun ArchitecturalMapScreen(
                                     center = center,
                                     style = Stroke(
                                         width = if (isSelected) 2.8.dp.toPx() else 1.6.dp.toPx(),
-                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 6f), archPhase * 6f)
+                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 6f), archPhaseState.value * 6f)
                                     )
                                 )
                             }
@@ -508,6 +510,26 @@ fun ArchitecturalMapScreen(
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        OutlinedButton(
+            onClick = onStartNewSession,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("new_session_button_arch"),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = strings.newSessionButton,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = strings.newSessionButton, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
