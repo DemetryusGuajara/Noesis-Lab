@@ -275,8 +275,6 @@ class NoesisRepository(
         dao.getAllProvidersOnce().firstOrNull { it.baseUrl.equals(clean, ignoreCase = true) }
     }
 
-    suspend fun updateKeySlot(key: AiProviderKeyEntity) = dao.updateProviderKey(key)
-
     suspend fun updateProviderVerification(provider: AiProviderEntity) = withContext(Dispatchers.IO) {
         if (provider.isActive) dao.deactivateAllProviders()
         dao.updateProvider(provider)
