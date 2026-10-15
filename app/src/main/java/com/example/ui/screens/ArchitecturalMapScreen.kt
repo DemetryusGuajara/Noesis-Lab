@@ -44,6 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.example.ui.components.drawMentalSpaces
+import com.example.ui.components.rememberSpacesPalette
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -97,6 +99,7 @@ fun ArchitecturalMapScreen(
     )
 
     val textMeasurer = rememberTextMeasurer()
+    val spacesPalette = rememberSpacesPalette()
 
     Column(
         modifier = Modifier
@@ -191,139 +194,17 @@ fun ArchitecturalMapScreen(
                             }
                         }
                 ) {
-                    val w = size.width
-                    val h = size.height
-
-                    val step = 38.dp.toPx()
-                    var gx = step
-                    while (gx < w) {
-                        drawLine(
-                            color = outlineColor.copy(alpha = 0.25f),
-                            start = Offset(gx, 0f),
-                            end = Offset(gx, h),
-                            strokeWidth = 1f
-                        )
-                        gx += step
-                    }
-                    var gy = step
-                    while (gy < h) {
-                        drawLine(
-                            color = outlineColor.copy(alpha = 0.25f),
-                            start = Offset(0f, gy),
-                            end = Offset(w, gy),
-                            strokeWidth = 1f
-                        )
-                        gy += step
-                    }
-
-                    // Rooms (connection lines removed: they carried no real meaning
-                    // beyond the shape anchors, and they cluttered both maps)
-                    val zoneMap = uiState.diagnosedZones.associateBy { it.zone.zoneId }
-
-                    uiState.diagnosedZones.forEach { dz ->
-                        val zone = dz.zone
-                        val center = Offset(zone.mapX * w, zone.mapY * h)
-                        val isSelected = zone.zoneId == selectedDiagnosed?.zone?.zoneId
-                        val chamberRadius = (22f + dz.diagnosedClarity * 14f).dp.toPx()
-                        val strokeColor = when {
-                            isSelected -> primaryColor
-                            dz.diagnosedPressure > 0.62f -> Color(0xFFD14949)
-                            dz.diagnosedClarity > 0.70f -> secondaryColor
-                            else -> tertiaryColor
-                        }
-
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    strokeColor.copy(alpha = dz.diagnosedClarity * 0.35f),
-                                    Color.Transparent
-                                ),
-                                center = center,
-                                radius = chamberRadius * 1.6f
-                            ),
-                            radius = chamberRadius * 1.6f,
-                            center = center
-                        )
-
-                        when (zone.geometryType) {
-                            "LABYRINTH" -> {
-                                for (r in 1..3) {
-                                    val side = chamberRadius * (0.55f * r)
-                                    drawRect(
-                                        color = strokeColor.copy(alpha = 0.4f + (if (isSelected) 0.4f else 0f)),
-                                        topLeft = Offset(center.x - side / 2f, center.y - side / 2f),
-                                        size = Size(side, side),
-                                        style = Stroke(width = if (isSelected && r == 3) 2.5.dp.toPx() else 1.5.dp.toPx())
-                                    )
-                                }
-                            }
-                            "ATRIUM" -> {
-                                for (r in 1..3) {
-                                    drawCircle(
-                                        color = strokeColor.copy(alpha = 0.3f * r),
-                                        radius = chamberRadius * (0.4f * r) + sin(archPhaseState.value) * 3f,
-                                        center = center,
-                                        style = Stroke(width = 2.dp.toPx())
-                                    )
-                                }
-                            }
-                            "TOWER", "LATTICE" -> {
-                                val hexPath = Path()
-                                for (i in 0..5) {
-                                    val angle = (i * 60.0 + (if (isSelected) archPhaseState.value * 15.0 else 0.0)) * PI / 180.0
-                                    val px = center.x + cos(angle).toFloat() * chamberRadius
-                                    val py = center.y + sin(angle).toFloat() * chamberRadius
-                                    if (i == 0) hexPath.moveTo(px, py) else hexPath.lineTo(px, py)
-                                }
-                                hexPath.close()
-                                drawPath(
-                                    path = hexPath,
-                                    color = strokeColor,
-                                    style = Stroke(width = if (isSelected) 3.dp.toPx() else 1.8.dp.toPx())
-                                )
-                            }
-                            "MONOLITH" -> {
-                                val tri = Path().apply {
-                                    moveTo(center.x, center.y - chamberRadius)
-                                    lineTo(center.x - chamberRadius * 0.9f, center.y + chamberRadius * 0.8f)
-                                    lineTo(center.x + chamberRadius * 0.9f, center.y + chamberRadius * 0.8f)
-                                    close()
-                                }
-                                drawPath(
-                                    path = tri,
-                                    color = strokeColor,
-                                    style = Stroke(width = if (isSelected) 3.dp.toPx() else 2.dp.toPx())
-                                )
-                            }
-                            else -> {
-                                drawCircle(
-                                    color = strokeColor,
-                                    radius = chamberRadius,
-                                    center = center,
-                                    style = Stroke(
-                                        width = if (isSelected) 2.8.dp.toPx() else 1.6.dp.toPx(),
-                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 6f), archPhaseState.value * 6f)
-                                    )
-                                )
-                            }
-                        }
-
-                        val labelLayout = textMeasurer.measure(
-                            text = zone.customTitle,
-                            style = TextStyle(
-                                color = onSurfaceColor,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        )
-                        drawText(
-                            textLayoutResult = labelLayout,
-                            topLeft = Offset(
-                                x = (center.x - labelLayout.size.width / 2f).coerceIn(6f, w - labelLayout.size.width - 6f),
-                                y = (center.y + chamberRadius + 5.dp.toPx()).coerceIn(6f, h - labelLayout.size.height - 6f)
-                            )
-                        )
-                    }
+                    drawMentalSpaces(
+                        zones = uiState.diagnosedZones,
+                        selectedZoneId = selectedDiagnosed?.zone?.zoneId,
+                        textMeasurer = textMeasurer,
+                        palette = spacesPalette,
+                        showText = true,
+                        showGrid = true,
+                        alpha = 1f,
+                        phase = archPhaseState.value,
+                        scale = 1f
+                    )
                 }
 
                 // Frame Scroll Rails for Split-Screen scrolling

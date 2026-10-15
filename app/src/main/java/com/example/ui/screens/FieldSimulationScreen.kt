@@ -80,8 +80,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ConceptParticleEntity
 import com.example.ui.theme.ThemeMode
-import com.example.ui.components.drawMentalSpaces
 import com.example.ui.components.MentalSpacesInfographic
+import com.example.ui.components.drawMentalSpaces
+import com.example.ui.components.rememberSpacesPalette
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
@@ -212,6 +213,7 @@ fun FieldSimulationScreen(
     )
 
     val textMeasurer = rememberTextMeasurer()
+    val spacesPalette = rememberSpacesPalette()
     // Label layouts are expensive to measure: cache per (name, selected, color).
     val labelCache = remember { mutableMapOf<Triple<String, Boolean, Color>, TextLayoutResult>() }
     fun labelLayout(name: String, selected: Boolean, color: Color): TextLayoutResult {
@@ -385,16 +387,17 @@ fun FieldSimulationScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                // Same aspect ratio as the Tab 2 map (0.9 = width/height), so the
-                // rooms keep identical proportions instead of being squashed.
+                // Same drawing routine as Tab 2 (theme colors, same shapes/animation), only
+                // smaller: rooms scaled, layout untouched so nothing is squashed.
                 MentalSpacesInfographic(
                     zones = uiState.diagnosedZones,
                     selectedZoneId = uiState.selectedZoneId,
                     onSelectZone = onSelectZone,
                     phase = wavePhaseState.value,
+                    roomScale = 0.72f,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(0.9f)
+                        .height(230.dp)
                 )
                 uiState.diagnosedZones.firstOrNull { it.zone.zoneId == uiState.selectedZoneId }?.let { dz ->
                     Spacer(modifier = Modifier.height(4.dp))
@@ -549,8 +552,10 @@ fun FieldSimulationScreen(
         drawMentalSpaces(
             zones = uiState.diagnosedZones,
             selectedZoneId = null,
-            textMeasurer = textMeasurer,
+            textMeasurer = null,
+            palette = spacesPalette,
             showText = false,
+            showGrid = false,
             alpha = 0.35f,
             phase = wavePhaseState.value,
             scale = 1.25f

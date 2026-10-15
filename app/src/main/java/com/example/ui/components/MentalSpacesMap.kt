@@ -15,46 +15,80 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.NoesisZoneColors
 import com.example.viewmodel.DiagnosedZoneState
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Shared draw of the Mental Spaces rooms.
+ * The single source of truth for the "Mental Spaces" drawing.
  *
- * Faithful replica of the Tab 2 drawing (same shapes, same colors, same
- * anchors/sizes), so the infographic on Tab 1 and the map on Tab 2 read
- * as the same object. Normalized zone anchors match the Tab 1 sphere
- * coordinates, so the background overlay lines up with the drag field.
- *
- * @param showText room labels (infographic mode).
- * @param alpha overall opacity (0.35 for the in-field overlay).
- * @param scale multiplies room radius (overlay is drawn larger).
+ * BOTH the Tab 2 map and the Tab 1 infographic/overlay call this function,
+ * so the two renderings are replicas by construction (same shapes, same
+ * theme colors, same labels, same animations, same anchors). Colors are
+ * always passed from the caller's MaterialTheme, never hardcoded.
+ */
+data class SpacesPalette(
+    val primary: Color,
+    val secondary: Color,
+    val tertiary: Color,
+    val pressure: Color,
+    val label: Color,
+    val grid: Color
+)
+
+/**
+ * @param showText room labels (off for the in-field overlay).
+ * @param showGrid background grid (on for both maps, off for the overlay).
+ * @param alpha overall opacity.
+ * @param scale multiplies room radius only — never the layout, so the
+ *        infographic can be smaller without being squashed.
  */
 fun DrawScope.drawMentalSpaces(
     zones: List<DiagnosedZoneState>,
     selectedZoneId: String?,
-    textMeasurer: androidx.compose.ui.text.TextMeasurer,
+    textMeasurer: TextMeasurer?,
+    palette: SpacesPalette,
     showText: Boolean,
+    showGrid: Boolean,
     alpha: Float,
     phase: Float,
     scale: Float = 1f
 ) {
-    if (zones.isEmpty()) return
     val w = size.width
     val h = size.height
-    val primary = NoesisZoneColors.primary
-    val secondary = NoesisZoneColors.secondary
-    val tertiary = NoesisZoneColors.tertiary
-    val label = NoesisZoneColors.label
+
+    if (showGrid) {
+        val step = 38.dp.toPx()
+        var gx = step
+        while (gx < w) {
+            drawLine(
+                color = palette.grid.copy(alpha = 0.25f * alpha),
+                start = Offset(gx, 0f),
+                end = Offset(gx, h),
+                strokeWidth = 1f
+            )
+            gx += step
+        }
+        var gy = step
+        while (gy < h) {
+            drawLine(
+                color = palette.grid.copy(alpha = 0.25f * alpha),
+                start = Offset(0f, gy),
+                end = Offset(w, gy),
+                strokeWidth = 1f
+            )
+            gy += step
+        }
+    }
 
     zones.forEach { dz ->
         val zone = dz.zone
@@ -62,13 +96,12 @@ fun DrawScope.drawMentalSpaces(
         val isSelected = zone.zoneId == selectedZoneId
         val chamberRadius = (22f + dz.diagnosedClarity * 14f).dp.toPx() * scale
         val strokeColor = when {
-            isSelected -> primary
-            dz.diagnosedPressure > 0.62f -> NoesisZoneColors.pressure
-            dz.diagnosedClarity > 0.70f -> secondary
-            else -> tertiary
-        }
+            isSelected -> palette.primary
+            dz.diagnosedPressure > 0.62f -> palette.pressure
+            dz.diagnosedClarity > 0.70f -> palette.secondary
+            else -> palette.tertiary
+        }.copy(alpha = alpha)
 
-        // Soft aura behind each room (same as Tab 2)
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -87,7 +120,7 @@ fun DrawScope.drawMentalSpaces(
                 for (r in 1..3) {
                     val side = chamberRadius * (0.55f * r)
                     drawRect(
-                        color = strokeColor.copy(alpha = (0.4f + (if (isSelected) 0.4f else 0f)) * alpha),
+                        color = strokeColor.copy(alpha = strokeColor.alpha * (0.4f + (if (isSelected) 0.4f else 0f))),
                         topLeft = Offset(center.x - side / 2f, center.y - side / 2f),
                         size = Size(side, side),
                         style = Stroke(
@@ -100,7 +133,7 @@ fun DrawScope.drawMentalSpaces(
             "ATRIUM" -> {
                 for (r in 1..3) {
                     drawCircle(
-                        color = strokeColor.copy(alpha = 0.3f * r * alpha),
+                        color = strokeColor.copy(alpha = strokeColor.alpha * 0.3f * r),
                         radius = chamberRadius * (0.4f * r) + sin(phase) * 3f,
                         center = center,
                         style = Stroke(width = 2.dp.toPx())
@@ -118,7 +151,7 @@ fun DrawScope.drawMentalSpaces(
                 hexPath.close()
                 drawPath(
                     path = hexPath,
-                    color = strokeColor.copy(alpha = alpha),
+                    color = strokeColor,
                     style = Stroke(
                         width = if (isSelected) 3.dp.toPx() else 1.8.dp.toPx(),
                         join = StrokeJoin.Round
@@ -134,7 +167,7 @@ fun DrawScope.drawMentalSpaces(
                 }
                 drawPath(
                     path = tri,
-                    color = strokeColor.copy(alpha = alpha),
+                    color = strokeColor,
                     style = Stroke(
                         width = if (isSelected) 3.dp.toPx() else 2.dp.toPx(),
                         join = StrokeJoin.Round
@@ -143,7 +176,7 @@ fun DrawScope.drawMentalSpaces(
             }
             else -> {
                 drawCircle(
-                    color = strokeColor.copy(alpha = alpha),
+                    color = strokeColor,
                     radius = chamberRadius,
                     center = center,
                     style = Stroke(
@@ -155,12 +188,12 @@ fun DrawScope.drawMentalSpaces(
             }
         }
 
-        if (showText) {
-            val layout = textMeasurer.measure(
+        if (showText && textMeasurer != null) {
+            val layout: TextLayoutResult = textMeasurer.measure(
                 text = zone.customTitle,
                 style = TextStyle(
-                    color = label,
-                    fontSize = 10.sp,
+                    color = palette.label.copy(alpha = alpha),
+                    fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )
             )
@@ -168,18 +201,32 @@ fun DrawScope.drawMentalSpaces(
                 textLayoutResult = layout,
                 topLeft = Offset(
                     x = (center.x - layout.size.width / 2f)
-                        .coerceIn(2f, (w - layout.size.width - 2f).coerceAtLeast(2f)),
-                    y = (center.y + chamberRadius + 4.dp.toPx())
-                        .coerceIn(2f, (h - layout.size.height - 2f).coerceAtLeast(2f))
+                        .coerceIn(6f, (w - layout.size.width - 6f).coerceAtLeast(6f)),
+                    y = (center.y + chamberRadius + 5.dp.toPx())
+                        .coerceIn(6f, (h - layout.size.height - 6f).coerceAtLeast(6f))
                 )
             )
         }
     }
 }
 
+/** Theme colors for the spaces map, taken from the caller's MaterialTheme. */
+@Composable
+fun rememberSpacesPalette(): SpacesPalette {
+    val cs = androidx.compose.material3.MaterialTheme.colorScheme
+    return SpacesPalette(
+        primary = cs.primary,
+        secondary = cs.secondary,
+        tertiary = cs.tertiary,
+        pressure = Color(0xFFD14949),
+        label = cs.onSurface,
+        grid = cs.outline
+    )
+}
+
 /**
- * Full infographic replica of the Tab 2 map placed ABOVE the Tab 1 mix field:
- * tappable rooms, labels, read-only meaning panel.
+ * Interactive replica of the Tab 2 map used above the Tab 1 mix field.
+ * Same drawing routine, same palette, same proportions.
  */
 @Composable
 fun MentalSpacesInfographic(
@@ -187,9 +234,12 @@ fun MentalSpacesInfographic(
     selectedZoneId: String?,
     onSelectZone: (String) -> Unit,
     phase: Float,
+    roomScale: Float = 1f,
+    labelSizeScale: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val palette = rememberSpacesPalette()
     Canvas(modifier = modifier.pointerInput(zones) {
         detectTapGestures { tap ->
             val w = size.width.toFloat().coerceAtLeast(1f)
@@ -202,8 +252,8 @@ fun MentalSpacesInfographic(
             if (nearest != null) {
                 val dx = nearest.zone.mapX * w - tap.x
                 val dy = nearest.zone.mapY * h - tap.y
-                val hit = (44f + nearest.diagnosedClarity * 14f) *
-                    (size.width.toFloat() / 320f).coerceAtLeast(1f)
+                val hit = ((22f + nearest.diagnosedClarity * 14f) * roomScale + 14f) *
+                    (size.width.toFloat() / 288f).coerceAtLeast(0.55f)
                 if (dx * dx + dy * dy < hit * hit) {
                     onSelectZone(nearest.zone.zoneId)
                 }
@@ -214,9 +264,12 @@ fun MentalSpacesInfographic(
             zones = zones,
             selectedZoneId = selectedZoneId,
             textMeasurer = textMeasurer,
+            palette = palette,
             showText = true,
+            showGrid = true,
             alpha = 1f,
-            phase = phase
+            phase = phase,
+            scale = roomScale
         )
     }
 }
