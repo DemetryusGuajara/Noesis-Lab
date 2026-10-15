@@ -80,6 +80,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.ConceptParticleEntity
 import com.example.ui.theme.ThemeMode
+import com.example.ui.components.drawMentalSpaces
+import com.example.ui.components.MentalSpacesInfographic
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
@@ -100,7 +102,8 @@ fun FieldSimulationScreen(
     onRemoveParticle: (Long) -> Unit,
     onResetParticles: () -> Unit,
     onCollideAndSynthesize: () -> Unit,
-    onStartNewSession: () -> Unit
+    onStartNewSession: () -> Unit,
+    onSelectZone: (String) -> Unit
 ) {
     val strings = uiState.strings
     var customConceptInput by remember { mutableStateOf("") }
@@ -291,6 +294,62 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Mental Spaces infographic (replica of Tab 2) ABOVE the mix field:
+        // tap a room to learn what it means, then place spheres there.
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("spaces_infographic_card"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = strings.fieldSpacesTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = strings.fieldSpacesHelper,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                MentalSpacesInfographic(
+                    zones = uiState.diagnosedZones,
+                    selectedZoneId = uiState.selectedZoneId,
+                    onSelectZone = onSelectZone,
+                    phase = wavePhaseState.value,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                )
+                uiState.diagnosedZones.firstOrNull { it.zone.zoneId == uiState.selectedZoneId }?.let { dz ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = dz.zone.customTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = dz.zone.conceptDomain,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = dz.zone.architecturalDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
         // Interactive Synesthetic Canvas with Split-Screen Scroll Frame Rails on Left & Right Edges (Item 3)
         val canvasBg = MaterialTheme.colorScheme.surface
         val gridLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
@@ -406,7 +465,18 @@ fun FieldSimulationScreen(
                         )
                     }
 
-                    // 2. Subtle Horizon Rings
+                    // Overlay with a subtle 15%-opacity replica of the Spaces map (no labels) so
+    // the user always sees which room they are dropping a sphere into.
+    drawMentalSpaces(
+        zones = uiState.diagnosedZones,
+        selectedZoneId = null,
+        textMeasurer = textMeasurer,
+        showText = false,
+        alpha = 0.15f,
+        phase = wavePhaseState.value
+    )
+
+    // 2. Subtle Horizon Rings
                     for (ring in 1..3) {
                         val radius = (minOf(w, h) * 0.15f * ring) + sin(wavePhaseState.value + ring) * 3f
                         drawCircle(
@@ -494,8 +564,11 @@ fun FieldSimulationScreen(
                         )
                         val isSelected = p.id == selectedParticle?.id || p.id == activeDraggingId
                         val pulse = sin(wavePhaseState.value * (1f + abs(p.spin) * 0.35f) + idx)
-                        val coreRadius = (16f + p.mass * 6f).dp.toPx()
-                        val haloRadius = coreRadius * (1.45f + pulse * 0.12f)
+                        // Spheres are 40% smaller (room for many concepts); the
+                        // emitted light keeps its original size.
+                        val coreRadius = (9.6f + p.mass * 3.6f).dp.toPx()
+                        val glowBase = (16f + p.mass * 6f).dp.toPx()
+                        val haloRadius = glowBase * (1.45f + pulse * 0.12f)
 
                         if (isSelected) {
                             drawCircle(

@@ -153,6 +153,7 @@ fun NoesisAppShell(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     GuideSectionItem(title = strings.guideStep1Title, body = strings.guideStep1Body)
+                    GuideSectionItem(title = strings.guideSpacesTitle, body = strings.guideSpacesBody)
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     GuideSectionItem(title = strings.guideStep2Title, body = strings.guideStep2Body)
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -278,7 +279,8 @@ fun NoesisAppShell(
                     onRemoveParticle = viewModel::removeParticle,
                     onResetParticles = viewModel::resetFieldParticles,
                     onCollideAndSynthesize = { viewModel.collideAndRunSimulation(null) },
-                    onStartNewSession = viewModel::startNewSession
+                    onStartNewSession = viewModel::startNewSession,
+                    onSelectZone = viewModel::selectArchitecturalZone
                 )
 
                 NoesisTab.ARCHITECTURE -> ArchitecturalMapScreen(
