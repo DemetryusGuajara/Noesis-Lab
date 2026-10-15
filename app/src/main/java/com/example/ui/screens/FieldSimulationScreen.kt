@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -87,6 +91,53 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
+/**
+ * Ornamental side rail of the mix field: two parallel half-height lines with
+ * a dot at each end (same stroke color/weight as the field border). Purely
+ * decorative, but it signals that the side strip is draggable.
+ */
+@Composable
+private fun FieldScrollRail(modifier: Modifier = Modifier) {
+    val stroke = MaterialTheme.colorScheme.outline
+    Canvas(modifier = modifier) {
+        val lineWidth = 1.5.dp.toPx()
+        val dotRadius = 2.5.dp.toPx()
+        val half = size.height / 2f
+        val top = (size.height - half) / 2f
+        val xs = listOf(size.width * 0.32f, size.width * 0.68f)
+        xs.forEach { x ->
+            drawLine(
+                color = stroke,
+                start = Offset(x, top),
+                end = Offset(x, top + half),
+                strokeWidth = lineWidth,
+                cap = StrokeCap.Round
+            )
+            drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top))
+            drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top + half))
+        }
+    }
+}
+
+@Composable
+private fun CompactSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    thumbColor: Color
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        modifier = Modifier.height(26.dp),
+        colors = SliderDefaults.colors(
+            thumbColor = thumbColor,
+            activeTrackColor = thumbColor
+        )
+    )
+}
+
 @Composable
 fun FieldSimulationScreen(
     uiState: NoesisUiState,
@@ -103,6 +154,7 @@ fun FieldSimulationScreen(
     val strings = uiState.strings
     var customConceptInput by remember { mutableStateOf("") }
     var showMetricsExplanation by remember { mutableStateOf(false) }
+    var spherePanelOpen by remember { mutableStateOf(false) }
 
     val isDark = when (uiState.preferences.themeMode) {
         ThemeMode.DARK -> true
@@ -200,20 +252,20 @@ fun FieldSimulationScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Text(
                     text = strings.fieldHeaderTitle,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = strings.fieldHeaderSubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Surface(
                     shape = RoundedCornerShape(10.dp),
@@ -224,7 +276,7 @@ fun FieldSimulationScreen(
                         text = strings.fieldQuickTip,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(10.dp)
+                        modifier = Modifier.padding(8.dp)
                     )
                 }
             }
@@ -241,7 +293,7 @@ fun FieldSimulationScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -255,7 +307,7 @@ fun FieldSimulationScreen(
                         )
                         Text(
                             text = "${(uiState.phaseCoherence * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -267,7 +319,7 @@ fun FieldSimulationScreen(
                         )
                         Text(
                             text = "${(uiState.entropyIndex * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
@@ -279,7 +331,7 @@ fun FieldSimulationScreen(
                         )
                         Text(
                             text = musicalMoodText,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.tertiary
                         )
                     }
@@ -287,12 +339,12 @@ fun FieldSimulationScreen(
                         imageVector = Icons.Default.Info,
                         contentDescription = "Info",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
                 AnimatedVisibility(visible = showMetricsExplanation) {
-                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                    Column(modifier = Modifier.padding(top = 4.dp)) {
                         Text(
                             text = "• ${strings.metricHarmonyLabel}: ${strings.metricHarmonyHelp}",
                             style = MaterialTheme.typography.bodySmall,
@@ -320,7 +372,7 @@ fun FieldSimulationScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(10.dp)) {
                 Text(
                     text = strings.fieldSpacesTitle,
                     style = MaterialTheme.typography.titleSmall,
@@ -332,7 +384,9 @@ fun FieldSimulationScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                // Same aspect ratio as the Tab 2 map (0.9 = width/height), so the
+                // rooms keep identical proportions instead of being squashed.
                 MentalSpacesInfographic(
                     zones = uiState.diagnosedZones,
                     selectedZoneId = uiState.selectedZoneId,
@@ -340,10 +394,10 @@ fun FieldSimulationScreen(
                     phase = wavePhaseState.value,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(190.dp)
+                        .aspectRatio(0.9f)
                 )
                 uiState.diagnosedZones.firstOrNull { it.zone.zoneId == uiState.selectedZoneId }?.let { dz ->
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = dz.zone.customTitle,
                         style = MaterialTheme.typography.labelLarge,
@@ -354,7 +408,6 @@ fun FieldSimulationScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.secondary
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = dz.zone.architecturalDescription,
                         style = MaterialTheme.typography.bodySmall,
@@ -366,15 +419,24 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Interactive Synesthetic Canvas with Split-Screen Scroll Frame Rails on Left & Right Edges (Item 3)
+        // Square mix field (same corner radius) flanked by ornamental scroll rails.
         val canvasBg = MaterialTheme.colorScheme.surface
         val gridLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         val labelColor = MaterialTheme.colorScheme.onSurface
 
-        Card(
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FieldScrollRail(modifier = Modifier.width(26.dp).fillMaxHeight())
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Card(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(355.dp)
+                .weight(1f, fill = true)
+                .aspectRatio(1f)
                 .testTag("particle_field_canvas"),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = canvasBg),
@@ -387,7 +449,7 @@ fun FieldSimulationScreen(
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
                         .pointerInput(Unit) {
                             detectTapGestures { offset ->
                                 val w = size.width.toFloat().coerceAtLeast(1f)
@@ -631,26 +693,15 @@ fun FieldSimulationScreen(
                         )
                     }
                 }
-
-                // Subtle Left & Right Frame Scroll Rails (Untouched by pointerInput so vertical scroll always works on the frame edges in Split-Screen!)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .width(18.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .width(18.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
-                )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+
+            FieldScrollRail(modifier = Modifier.width(26.dp).fillMaxHeight())
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Action Row: Read State in Mirror + Reset Canvas
         Row(
@@ -696,8 +747,39 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Selected Sphere Inspector (2 Sliders Only: Importance/Hue & Sensation/Saturation; Pitch is Automatic!)
-        AnimatedVisibility(visible = selectedParticle != null) {
+        // Selected Sphere Inspector — collapsible (same pattern as provider cards)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { spherePanelOpen = !spherePanelOpen },
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.5.dp, (selectedParticle?.let {
+                computeSynestheticSphereColor(it.mass, it.charge, isDark).copy(alpha = 0.7f)
+            } ?: MaterialTheme.colorScheme.outline))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = selectedParticle?.let { formatConceptTitleCase(it.name) } ?: strings.fieldSpherePanelTitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Icon(
+                    imageVector = if (spherePanelOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = spherePanelOpen && selectedParticle != null) {
             selectedParticle?.let { particle ->
                 val liveSphereColor = computeSynestheticSphereColor(
                     importanceMass = particle.mass,
@@ -708,12 +790,13 @@ fun FieldSimulationScreen(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(top = 6.dp)
                         .testTag("selected_particle_card"),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.5.dp, liveSphereColor.copy(alpha = 0.7f))
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(10.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -722,39 +805,42 @@ fun FieldSimulationScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(18.dp)
+                                        .size(16.dp)
                                         .clip(CircleShape)
                                         .background(liveSphereColor)
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = formatConceptTitleCase(particle.name),
-                                    style = MaterialTheme.typography.titleLarge,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            if (uiState.particles.size > 2) {
+                            if (uiState.particles.isNotEmpty()) {
                                 IconButton(
                                     onClick = { onRemoveParticle(particle.id) },
-                                    modifier = Modifier.testTag("delete_particle_button")
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .testTag("delete_particle_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.DeleteOutline,
                                         contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = particle.philosophicalNote,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         // 1. Size & Importance Slider (Cold Blue -> Warm Red Hue)
                         val importancePct = (((particle.mass - 0.4f) / 2.1f) * 100f).toInt().coerceIn(0, 100)
@@ -763,24 +849,21 @@ fun FieldSimulationScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            text = strings.particleDetailMassHelp,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Slider(
+                        CompactSlider(
                             value = particle.mass,
                             onValueChange = { newMass ->
                                 onUpdateParticleImportanceAndHeaviness(particle, newMass, particle.charge)
                             },
                             valueRange = 0.4f..2.5f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = liveSphereColor,
-                                activeTrackColor = liveSphereColor
-                            )
+                            thumbColor = liveSphereColor
+                        )
+                        Text(
+                            text = strings.particleDetailMassHelp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         // 2. Sensation Slider (0.0 = Leve [Left] <-> 1.0 = Pesada [Right])
                         val feelingLabel = when {
@@ -793,21 +876,18 @@ fun FieldSimulationScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            text = strings.particleDetailChargeHelp,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Slider(
+                        CompactSlider(
                             value = particle.charge.coerceIn(0f, 1f),
                             onValueChange = { newHeaviness ->
                                 onUpdateParticleImportanceAndHeaviness(particle, particle.mass, newHeaviness)
                             },
                             valueRange = 0.0f..1.0f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = liveSphereColor,
-                                activeTrackColor = liveSphereColor
-                            )
+                            thumbColor = liveSphereColor
+                        )
+                        Text(
+                            text = strings.particleDetailChargeHelp,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -823,19 +903,19 @@ fun FieldSimulationScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(10.dp)) {
                 Text(
                     text = strings.injectConceptLabel,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = strings.injectConceptHelper,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
