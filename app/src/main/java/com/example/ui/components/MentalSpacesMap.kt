@@ -9,9 +9,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.StrokeJoin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -32,7 +32,6 @@ import kotlin.math.sin
  * @param showText labels of rooms (full infographic mode).
  * @param alpha overall opacity (0.15 for the background overlay).
  */
-@Composable
 fun DrawScope.drawMentalSpaces(
     zones: List<DiagnosedZoneState>,
     selectedZoneId: String?,
