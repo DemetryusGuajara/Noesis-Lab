@@ -5,6 +5,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -17,20 +19,25 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.NoesisZoneColors
 import com.example.viewmodel.DiagnosedZoneState
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Shared draw of the "Mental Spaces" infographic.
- * Zone anchors use the same normalized coordinates as the Tab 1 field, so the
- * overlay aligns exactly with where spheres are dragged.
+ * Shared draw of the Mental Spaces rooms.
  *
- * @param showText labels of rooms (full infographic mode).
- * @param alpha overall opacity (0.15 for the background overlay).
+ * Faithful replica of the Tab 2 drawing (same shapes, same colors, same
+ * anchors/sizes), so the infographic on Tab 1 and the map on Tab 2 read
+ * as the same object. Normalized zone anchors match the Tab 1 sphere
+ * coordinates, so the background overlay lines up with the drag field.
+ *
+ * @param showText room labels (infographic mode).
+ * @param alpha overall opacity (0.35 for the in-field overlay).
+ * @param scale multiplies room radius (overlay is drawn larger).
  */
 fun DrawScope.drawMentalSpaces(
     zones: List<DiagnosedZoneState>,
@@ -38,92 +45,112 @@ fun DrawScope.drawMentalSpaces(
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
     showText: Boolean,
     alpha: Float,
-    phase: Float
+    phase: Float,
+    scale: Float = 1f
 ) {
     if (zones.isEmpty()) return
     val w = size.width
     val h = size.height
+    val primary = NoesisZoneColors.primary
+    val secondary = NoesisZoneColors.secondary
+    val tertiary = NoesisZoneColors.tertiary
+    val label = NoesisZoneColors.label
 
-    // Connections between rooms
-    val zoneMap = zones.associateBy { it.zone.zoneId }
-    zones.forEach { dz ->
-        val start = Offset(dz.zone.mapX * w, dz.zone.mapY * h)
-        dz.zone.connectedZonesCsv.split(",").map { it.trim() }.forEach { targetId ->
-            val target = zoneMap[targetId]?.zone ?: return@forEach
-            drawLine(
-                color = Color(0xFF8A7FD4).copy(alpha = 0.30f * alpha),
-                start = start,
-                end = Offset(target.mapX * w, target.mapY * h),
-                strokeWidth = 1.4f,
-                cap = StrokeCap.Round,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 6f), phase * 3f)
-            )
-        }
-    }
-
-    // Rooms
     zones.forEach { dz ->
         val zone = dz.zone
         val center = Offset(zone.mapX * w, zone.mapY * h)
         val isSelected = zone.zoneId == selectedZoneId
-        val radius = 17f
+        val chamberRadius = (22f + dz.diagnosedClarity * 14f).dp.toPx() * scale
+        val strokeColor = when {
+            isSelected -> primary
+            dz.diagnosedPressure > 0.62f -> NoesisZoneColors.pressure
+            dz.diagnosedClarity > 0.70f -> secondary
+            else -> tertiary
+        }
+
+        // Soft aura behind each room (same as Tab 2)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    strokeColor.copy(alpha = dz.diagnosedClarity * 0.35f),
+                    Color.Transparent
+                ),
+                center = center,
+                radius = chamberRadius * 1.6f
+            ),
+            radius = chamberRadius * 1.6f,
+            center = center
+        )
 
         when (zone.geometryType) {
             "LABYRINTH" -> {
                 for (r in 1..3) {
-                    val side = radius * (0.62f * r)
+                    val side = chamberRadius * (0.55f * r)
                     drawRect(
-                        color = Color(0xFF7A6F9B).copy(alpha = 0.55f * alpha),
+                        color = strokeColor.copy(alpha = (0.4f + (if (isSelected) 0.4f else 0f)) * alpha),
                         topLeft = Offset(center.x - side / 2f, center.y - side / 2f),
-                        size = androidx.compose.ui.geometry.Size(side, side),
-                        style = Stroke(width = 1.2f, join = StrokeJoin.Round)
+                        size = Size(side, side),
+                        style = Stroke(
+                            width = if (isSelected && r == 3) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                            join = StrokeJoin.Round
+                        )
                     )
                 }
             }
             "ATRIUM" -> {
                 for (r in 1..3) {
                     drawCircle(
-                        color = Color(0xFFD97757).copy(alpha = 0.45f * alpha),
-                        radius = radius * (0.42f * r),
+                        color = strokeColor.copy(alpha = 0.3f * r * alpha),
+                        radius = chamberRadius * (0.4f * r) + sin(phase) * 3f,
                         center = center,
-                        style = Stroke(width = 1.2f)
+                        style = Stroke(width = 2.dp.toPx())
                     )
                 }
             }
             "TOWER", "LATTICE" -> {
-                val path = Path()
+                val hexPath = Path()
                 for (i in 0..5) {
-                    val angle = (i * 60.0 + (if (isSelected) phase * 6.0 else 0.0)) * PI / 180.0
-                    val px = center.x + cos(angle).toFloat() * radius
-                    val py = center.y + sin(angle).toFloat() * radius
-                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    val angle = (i * 60.0 + (if (isSelected) phase * 15.0 else 0.0)) * PI / 180.0
+                    val px = center.x + cos(angle).toFloat() * chamberRadius
+                    val py = center.y + sin(angle).toFloat() * chamberRadius
+                    if (i == 0) hexPath.moveTo(px, py) else hexPath.lineTo(px, py)
                 }
-                path.close()
+                hexPath.close()
                 drawPath(
-                    path = path,
-                    color = Color(0xFF5A8F99).copy(alpha = 0.6f * alpha),
-                    style = Stroke(width = if (isSelected) 2f else 1.3f, join = StrokeJoin.Round)
+                    path = hexPath,
+                    color = strokeColor.copy(alpha = alpha),
+                    style = Stroke(
+                        width = if (isSelected) 3.dp.toPx() else 1.8.dp.toPx(),
+                        join = StrokeJoin.Round
+                    )
                 )
             }
             "MONOLITH" -> {
                 val tri = Path().apply {
-                    moveTo(center.x, center.y - radius)
-                    lineTo(center.x - radius * 0.9f, center.y + radius * 0.8f)
-                    lineTo(center.x + radius * 0.9f, center.y + radius * 0.8f)
+                    moveTo(center.x, center.y - chamberRadius)
+                    lineTo(center.x - chamberRadius * 0.9f, center.y + chamberRadius * 0.8f)
+                    lineTo(center.x + chamberRadius * 0.9f, center.y + chamberRadius * 0.8f)
                     close()
                 }
                 drawPath(
                     path = tri,
-                    color = Color(0xFFD4AF59).copy(alpha = 0.6f * alpha),
-                    style = Stroke(width = if (isSelected) 2f else 1.4f, join = StrokeJoin.Round)
+                    color = strokeColor.copy(alpha = alpha),
+                    style = Stroke(
+                        width = if (isSelected) 3.dp.toPx() else 2.dp.toPx(),
+                        join = StrokeJoin.Round
+                    )
                 )
             }
             else -> {
                 drawCircle(
-                    color = Color(0xFF6E8B74).copy(alpha = 0.6f * alpha),
-                    radius = radius,
+                    color = strokeColor.copy(alpha = alpha),
+                    radius = chamberRadius,
                     center = center,
-                    style = Stroke(width = if (isSelected) 2f else 1.3f)
+                    style = Stroke(
+                        width = if (isSelected) 2.8.dp.toPx() else 1.6.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 6f), phase * 6f),
+                        cap = StrokeCap.Round
+                    )
                 )
             }
         }
@@ -132,16 +159,18 @@ fun DrawScope.drawMentalSpaces(
             val layout = textMeasurer.measure(
                 text = zone.customTitle,
                 style = TextStyle(
-                    color = Color(0xFF3A3550).copy(alpha = alpha),
-                    fontSize = 9.sp,
+                    color = label,
+                    fontSize = 10.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )
             )
             drawText(
                 textLayoutResult = layout,
                 topLeft = Offset(
-                    x = (center.x - layout.size.width / 2f).coerceIn(2f, (w - layout.size.width - 2f).coerceAtLeast(2f)),
-                    y = (center.y + radius + 3f).coerceIn(2f, (h - layout.size.height - 2f).coerceAtLeast(2f))
+                    x = (center.x - layout.size.width / 2f)
+                        .coerceIn(2f, (w - layout.size.width - 2f).coerceAtLeast(2f)),
+                    y = (center.y + chamberRadius + 4.dp.toPx())
+                        .coerceIn(2f, (h - layout.size.height - 2f).coerceAtLeast(2f))
                 )
             )
         }
@@ -149,8 +178,8 @@ fun DrawScope.drawMentalSpaces(
 }
 
 /**
- * Full infographic replica of Tab 2's map: tappable rooms, labels, read-only.
- * Lives ABOVE the mix field in Tab 1 to guide sphere placement.
+ * Full infographic replica of the Tab 2 map placed ABOVE the Tab 1 mix field:
+ * tappable rooms, labels, read-only meaning panel.
  */
 @Composable
 fun MentalSpacesInfographic(
@@ -173,7 +202,9 @@ fun MentalSpacesInfographic(
             if (nearest != null) {
                 val dx = nearest.zone.mapX * w - tap.x
                 val dy = nearest.zone.mapY * h - tap.y
-                if (dx * dx + dy * dy < (60f * (w / 300f)).coerceAtLeast(900f)) {
+                val hit = (44f + nearest.diagnosedClarity * 14f) *
+                    (size.width.toFloat() / 320f).coerceAtLeast(1f)
+                if (dx * dx + dy * dy < hit * hit) {
                     onSelectZone(nearest.zone.zoneId)
                 }
             }

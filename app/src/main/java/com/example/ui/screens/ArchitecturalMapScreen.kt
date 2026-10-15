@@ -216,26 +216,9 @@ fun ArchitecturalMapScreen(
                         gy += step
                     }
 
+                    // Rooms (connection lines removed: they carried no real meaning
+                    // beyond the shape anchors, and they cluttered both maps)
                     val zoneMap = uiState.diagnosedZones.associateBy { it.zone.zoneId }
-
-                    uiState.diagnosedZones.forEach { dz ->
-                        val zone = dz.zone
-                        val start = Offset(zone.mapX * w, zone.mapY * h)
-                        val targets = zone.connectedZonesCsv.split(",").map { it.trim() }
-                        targets.forEach { targetId ->
-                            val targetZone = zoneMap[targetId]?.zone
-                            if (targetZone != null) {
-                                val end = Offset(targetZone.mapX * w, targetZone.mapY * h)
-                                drawLine(
-                                    color = primaryColor.copy(alpha = 0.35f),
-                                    start = start,
-                                    end = end,
-                                    strokeWidth = 2.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), archPhaseState.value * 8f)
-                                )
-                            }
-                        }
-                    }
 
                     uiState.diagnosedZones.forEach { dz ->
                         val zone = dz.zone

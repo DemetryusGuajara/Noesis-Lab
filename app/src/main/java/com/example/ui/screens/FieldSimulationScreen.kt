@@ -17,8 +17,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -38,8 +36,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -91,7 +87,6 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FieldSimulationScreen(
     uiState: NoesisUiState,
@@ -115,15 +110,36 @@ fun FieldSimulationScreen(
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
 
-    // Zero-latency local coordinate map for buttery-smooth 60fps dragging
+    // Zero-latency local coordinate map for buttery-smooth 60fps dragging.
+    // Sync rule: adopt a DB position ONLY when it actually differs from the
+    // last position we committed for that sphere. This prevents the field
+    // from snapping back mid-drag when unrelated uiState emissions happen.
     val liveOffsets = remember { mutableStateMapOf<Long, Offset>() }
+    val committedPositions = remember { mutableStateMapOf<Long, Offset>() }
     var activeDraggingId by remember { mutableStateOf<Long?>(null) }
 
-    LaunchedEffect(uiState.particles, activeDraggingId) {
+    LaunchedEffect(uiState.particles) {
         uiState.particles.forEach { p ->
-            if (p.id != activeDraggingId) {
-                liveOffsets[p.id] = Offset(p.posX, p.posY)
+            val incoming = Offset(p.posX, p.posY)
+            val lastCommitted = committedPositions[p.id]
+            val live = liveOffsets[p.id]
+            val drift = live != null &&
+                kotlin.math.abs(incoming.x - live.x) > 0.0015f &&
+                kotlin.math.abs(incoming.y - live.y) > 0.0015f
+            if (p.id != activeDraggingId && lastCommitted != incoming && drift) {
+                liveOffsets[p.id] = incoming
+                committedPositions[p.id] = incoming
             }
+            if (liveOffsets[p.id] == null) {
+                liveOffsets[p.id] = incoming
+                committedPositions[p.id] = incoming
+            }
+        }
+        // Purge spheres that no longer exist (removed / new session).
+        val ids = uiState.particles.map { it.id }.toSet()
+        liveOffsets.keys.filter { it !in ids }.forEach {
+            liveOffsets.remove(it)
+            committedPositions.remove(it)
         }
     }
 
@@ -330,7 +346,7 @@ fun FieldSimulationScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = dz.zone.customTitle,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
@@ -412,6 +428,7 @@ fun FieldSimulationScreen(
                                         val target = currentParticles.find { it.id == id }
                                         val finalPos = liveOffsets[id]
                                         if (target != null && finalPos != null) {
+                                            committedPositions[id] = finalPos
                                             onCommitParticlePosition(target, finalPos.x, finalPos.y, lastDragSpeed)
                                         }
                                     }
@@ -465,16 +482,17 @@ fun FieldSimulationScreen(
                         )
                     }
 
-                    // Overlay with a subtle 15%-opacity replica of the Spaces map (no labels) so
-    // the user always sees which room they are dropping a sphere into.
-    drawMentalSpaces(
-        zones = uiState.diagnosedZones,
-        selectedZoneId = null,
-        textMeasurer = textMeasurer,
-        showText = false,
-        alpha = 0.15f,
-        phase = wavePhaseState.value
-    )
+                    // Overlay: subtle replica of the spaces map inside the mix field (35%,
+        // slightly enlarged) so the user always sees where they are placing.
+        drawMentalSpaces(
+            zones = uiState.diagnosedZones,
+            selectedZoneId = null,
+            textMeasurer = textMeasurer,
+            showText = false,
+            alpha = 0.35f,
+            phase = wavePhaseState.value,
+            scale = 1.25f
+        )
 
     // 2. Subtle Horizon Rings
                     for (ring in 1..3) {
@@ -742,7 +760,7 @@ fun FieldSimulationScreen(
                         val importancePct = (((particle.mass - 0.4f) / 2.1f) * 100f).toInt().coerceIn(0, 100)
                         Text(
                             text = "${strings.particleDetailMass}: $importancePct%",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
@@ -772,7 +790,7 @@ fun FieldSimulationScreen(
                         }
                         Text(
                             text = "${strings.particleDetailCharge}: $feelingLabel",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
@@ -858,45 +876,6 @@ fun FieldSimulationScreen(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = strings.presetsLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val presets = listOf(
-                    "Arquitetura" to "CUSTOM",
-                    "Colorimetria" to "CUSTOM",
-                    "Ambiguidade" to "CUSTOM",
-                    "Desejo" to "DESIRE",
-                    "Medo" to "FEAR",
-                    "Saudade" to "TIME",
-                    "Liberdade" to "EMPTINESS",
-                    "Foco" to "POWER",
-                    "Equilíbrio" to "JUSTICE"
-                )
-
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    presets.forEach { (label, key) ->
-                        AssistChip(
-                            onClick = { onInjectConcept(label, key) },
-                            label = {
-                                Text(
-                                    text = "+ $label",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
-                    }
-                }
             }
         }
 
