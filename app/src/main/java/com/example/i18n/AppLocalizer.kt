@@ -226,7 +226,7 @@ data class StringsCatalog(
     val backupSuccessToast: String,
     val restoreSuccessToast: String,
     val backupErrorToast: String,
-    val dbStatsLabel: String
+    val dbStatsLabel: String,
     val uiDiagUnreadable: String,
     val uiDiagNoSession: String,
     val uiDiagEngineTiers: String,
@@ -281,7 +281,7 @@ data class StringsCatalog(
     val archetypeNoteEmptiness: String,
     val archetypeNoteCreativity: String,
     val archetypeNoteCustom: String,
-    val zoneDomains: Map<String, String>
+    val zoneDomains: Map<String, String>,
     val zoneDescriptions: Map<String, String>
 )
 object AppLocalizer {
