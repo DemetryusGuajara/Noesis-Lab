@@ -19,6 +19,7 @@ import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.i18n.AppLocalizer
 
 /**
  * Foreground Media Playback Service with native Android MediaSession & Notification.MediaStyle:
@@ -142,8 +143,8 @@ class NoesisAudioService : Service() {
         val session = mediaSession ?: return
         val engine = MysticSoundEngine.activeInstance
         val isPlaying = engine?.isAudioPlaying() ?: true
-        val activeSphereNames = engine?.getActiveSphereNames()?.ifBlank { "Harmonia Pentatônica 432Hz" }
-            ?: "Harmonia Pentatônica 432Hz"
+        val activeSphereNames = engine?.getActiveSphereNames()?.ifBlank { AppLocalizer.active().uiAudioHarmonyFallback }
+            ?: AppLocalizer.active().uiAudioHarmonyFallback
 
         val playbackStateInt = if (isPlaying) {
             PlaybackState.STATE_PLAYING
@@ -168,9 +169,9 @@ class NoesisAudioService : Service() {
         session.setPlaybackState(playbackState)
 
         val metadataBuilder = MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_TITLE, "Noesis Lab · Paisagem Sonora")
+            .putString(MediaMetadata.METADATA_KEY_TITLE, AppLocalizer.active().uiAudioNowPlayingTitle)
             .putString(MediaMetadata.METADATA_KEY_ARTIST, activeSphereNames)
-            .putString(MediaMetadata.METADATA_KEY_ALBUM, "Sintetizador Sinestésico 432Hz")
+            .putString(MediaMetadata.METADATA_KEY_ALBUM, AppLocalizer.active().uiAudioAlbum)
             .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
 
         getArtworkBitmap()?.let { bmp ->
@@ -186,10 +187,10 @@ class NoesisAudioService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Noesis Lab · Reprodutor de Mídia",
+                AppLocalizer.active().uiAudioChannelName,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Player de mídia para a paisagem sonora meditativa em segundo plano"
+                description = AppLocalizer.active().uiAudioChannelDesc
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -201,7 +202,8 @@ class NoesisAudioService : Service() {
     private fun buildMediaStyleNotification(): Notification {
         val engine = MysticSoundEngine.activeInstance
         val isPlaying = engine?.isAudioPlaying() ?: true
-        val activeSphereNames = engine?.getActiveSphereNames()?.ifBlank { "Harmonia Etérea" } ?: "Harmonia Etérea"
+        val activeSphereNames = engine?.getActiveSphereNames()?.ifBlank { AppLocalizer.active().uiAudioEtherealHarmony }
+            ?: AppLocalizer.active().uiAudioEtherealHarmony
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -238,8 +240,9 @@ class NoesisAudioService : Service() {
         } else {
             android.R.drawable.ic_media_play
         }
-        val playPauseTitle = if (isPlaying) "Pausar" else "Tocar"
-        val statusSubtitle = if (isPlaying) activeSphereNames else "Pausado · $activeSphereNames"
+        val strings = AppLocalizer.active()
+        val playPauseTitle = if (isPlaying) strings.uiAudioPause else strings.uiAudioPlay
+        val statusSubtitle = if (isPlaying) activeSphereNames else "${strings.uiAudioPaused} · $activeSphereNames"
 
         val toggleAction = Notification.Action.Builder(
             Icon.createWithResource(this, playPauseIconRes),
@@ -249,7 +252,7 @@ class NoesisAudioService : Service() {
 
         val stopAction = Notification.Action.Builder(
             Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-            "Parar",
+            strings.uiAudioStop,
             stopPendingIntent
         ).build()
 
@@ -266,9 +269,9 @@ class NoesisAudioService : Service() {
 
         builder
             .setSmallIcon(R.drawable.ic_notification_sound)
-            .setContentTitle("Noesis Lab · Paisagem Sonora")
+            .setContentTitle(strings.uiAudioNowPlayingTitle)
             .setContentText(statusSubtitle)
-            .setSubText("432Hz Pentatônico")
+            .setSubText(strings.uiAudioScale)
             .setContentIntent(contentPendingIntent)
             .setOngoing(isPlaying)
             .setVisibility(Notification.VISIBILITY_PUBLIC)

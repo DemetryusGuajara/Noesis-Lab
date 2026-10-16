@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.i18n.StringsCatalog
+import com.example.i18n.zoneTitle
 import com.example.viewmodel.DiagnosedZoneState
 import kotlin.math.PI
 import kotlin.math.cos
@@ -51,6 +53,8 @@ data class SpacesPalette(
  * @param alpha overall opacity.
  * @param scale multiplies room radius only — never the layout, so the
  *        infographic can be smaller without being squashed.
+ * @param strings when provided, room labels follow the app language instead
+ *        of the title stored in the database.
  */
 fun DrawScope.drawMentalSpaces(
     zones: List<DiagnosedZoneState>,
@@ -61,7 +65,8 @@ fun DrawScope.drawMentalSpaces(
     showGrid: Boolean,
     alpha: Float,
     phase: Float,
-    scale: Float = 1f
+    scale: Float = 1f,
+    strings: StringsCatalog? = null
 ) {
     val w = size.width
     val h = size.height
@@ -190,7 +195,7 @@ fun DrawScope.drawMentalSpaces(
 
         if (showText && textMeasurer != null) {
             val layout: TextLayoutResult = textMeasurer.measure(
-                text = zone.customTitle,
+                text = strings?.zoneTitle(zone.zoneId, zone.customTitle) ?: zone.customTitle,
                 style = TextStyle(
                     color = palette.label.copy(alpha = alpha),
                     fontSize = 11.sp,
@@ -236,6 +241,7 @@ fun MentalSpacesInfographic(
     phase: Float,
     roomScale: Float = 1f,
     labelSizeScale: Float = 1f,
+    strings: StringsCatalog? = null,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -269,7 +275,8 @@ fun MentalSpacesInfographic(
             showGrid = true,
             alpha = 1f,
             phase = phase,
-            scale = roomScale
+            scale = roomScale,
+            strings = strings
         )
     }
 }

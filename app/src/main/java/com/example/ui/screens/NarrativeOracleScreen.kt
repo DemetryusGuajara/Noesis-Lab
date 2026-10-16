@@ -127,7 +127,7 @@ fun NarrativeOracleScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "${strings.activeParticlesTitle} (Aba 1):",
+                    text = "${strings.activeParticlesTitle} (${strings.uiTab1Suffix}):",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -430,6 +430,7 @@ fun NarrativeOracleScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 ChatThread(
                     messages = threadMessages,
+                    strings = strings,
                     sendEnabled = !uiState.isSimulating,
                     isSimulating = uiState.isSimulating,
                     progressText = uiState.simulationProgressText,

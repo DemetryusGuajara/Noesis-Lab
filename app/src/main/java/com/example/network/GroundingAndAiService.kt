@@ -378,10 +378,20 @@ class GroundingAndAiService(private val context: Context) {
         }.getOrElse { emptyList() }
     }
 
+    /** Picks the string for the active app language (pt / en / es / fr). */
+    private fun L(lang: String, pt: String, en: String, es: String, fr: String): String =
+        when (lang.lowercase()) {
+            "en" -> en
+            "es" -> es
+            "fr" -> fr
+            else -> pt
+        }
+
     suspend fun verifyProviderAndPingModels(
         rawBaseUrl: String,
         apiKey: String,
-        pingWord: String = "oi"
+        pingWord: String = "oi",
+        langCode: String = "pt"
     ): ProviderVerificationReport = withContext(Dispatchers.IO) {
         val cleanBase = normalizeOpenAiBaseUrl(rawBaseUrl)
         val modelsUrl = "$cleanBase/models"
@@ -403,7 +413,13 @@ class GroundingAndAiService(private val context: Context) {
                         totalDiscoveredModels = 0,
                         verifiedResponsiveModels = emptyList(),
                         pingDetails = emptyList(),
-                        errorMessage = "HTTP ${resp.code} ao consultar /models: ${resp.message}"
+                        errorMessage = L(
+                            langCode,
+                            "HTTP ${resp.code} ao consultar /models: ${resp.message}",
+                            "HTTP ${resp.code} while requesting /models: ${resp.message}",
+                            "HTTP ${resp.code} al consultar /models: ${resp.message}",
+                            "HTTP ${resp.code} lors de la requête /models : ${resp.message}"
+                        )
                     )
                 }
 
@@ -425,7 +441,13 @@ class GroundingAndAiService(private val context: Context) {
                 totalDiscoveredModels = 0,
                 verifiedResponsiveModels = emptyList(),
                 pingDetails = emptyList(),
-                errorMessage = "Falha de conexão: ${e.localizedMessage ?: "Verifique a URL e internet"}"
+                errorMessage = L(
+                    langCode,
+                    "Falha de conexão: ${e.localizedMessage ?: "Verifique a URL e internet"}",
+                    "Connection failure: ${e.localizedMessage ?: "Check the URL and your internet"}",
+                    "Fallo de conexión: ${e.localizedMessage ?: "Revisa la URL y tu conexión"}",
+                    "Échec de connexion : ${e.localizedMessage ?: "Vérifiez l'URL et votre connexion"}"
+                )
             )
         }
 
@@ -435,7 +457,13 @@ class GroundingAndAiService(private val context: Context) {
                 totalDiscoveredModels = 0,
                 verifiedResponsiveModels = emptyList(),
                 pingDetails = emptyList(),
-                errorMessage = "Nenhum modelo listado pelo endpoint /models."
+                errorMessage = L(
+                    langCode,
+                    "Nenhum modelo listado pelo endpoint /models.",
+                    "No models listed by the /models endpoint.",
+                    "Ningún modelo listado por el endpoint /models.",
+                    "Aucun modèle listé par le point d'accès /models."
+                )
             )
         }
 
@@ -462,7 +490,13 @@ class GroundingAndAiService(private val context: Context) {
             verifiedResponsiveModels = verified,
             pingDetails = pingResults,
             errorMessage = if (verified.isEmpty()) {
-                "Foram encontrados ${discoveredIds.size} modelos em /models, mas nenhum respondeu 200 OK ao ping."
+                L(
+                    langCode,
+                    "Foram encontrados ${discoveredIds.size} modelos em /models, mas nenhum respondeu 200 OK ao ping.",
+                    "${discoveredIds.size} models were found in /models, but none answered 200 OK to the ping.",
+                    "Se encontraron ${discoveredIds.size} modelos en /models, pero ninguno respondió 200 OK al ping.",
+                    "${discoveredIds.size} modèles ont été trouvés dans /models, mais aucun n'a répondu 200 OK au ping."
+                )
             } else null
         )
     }
@@ -655,7 +689,15 @@ class GroundingAndAiService(private val context: Context) {
         // ativo, ele tem prioridade total: o Tier 2 nem é tentado.
         val hasActiveByok = !activeBaseUrl.isNullOrBlank() && !activeModelId.isNullOrBlank()
         if (hasActiveByok) {
-            onStageProgress("3/3 · Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...")
+            onStageProgress(
+                L(
+                    languageCode,
+                    "3/3 · Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...",
+                    "3/3 · Querying ${activeProviderName ?: "BYOK"} ($activeModelId)...",
+                    "3/3 · Consultando ${activeProviderName ?: "BYOK"} ($activeModelId)...",
+                    "3/3 · Interrogation de ${activeProviderName ?: "BYOK"} ($activeModelId)..."
+                )
+            )
             val byokText = callOpenAiCompatibleEndpoint(
                 endpointUrl = "${normalizeOpenAiBaseUrl(activeBaseUrl)}/chat/completions",
                 apiKey = activeApiKey,
@@ -1003,25 +1045,94 @@ class GroundingAndAiService(private val context: Context) {
         val polarityPair = topology.furthestPolarityPair
 
         if (languageCode.lowercase() != "pt") {
+            val lang = languageCode.lowercase()
             return buildString {
-                appendLine("# The Living Constellation of $primaryConcept and $secondaryConcept")
-                appendLine("Your mental space right now is not a static list of feelings—it is a dynamic field of forces where each sphere bends the meaning of the others.")
+                appendLine(
+                    L(
+                        lang,
+                        "# A Constelação Viva de $primaryConcept e $secondaryConcept",
+                        "# The Living Constellation of $primaryConcept and $secondaryConcept",
+                        "# La Constelación Viva de $primaryConcept y $secondaryConcept",
+                        "# La Constellation Vivante de $primaryConcept et $secondaryConcept"
+                    )
+                )
+                appendLine(
+                    L(
+                        lang,
+                        "Seu espaço mental agora não é uma lista estática de sentimentos — é um campo dinâmico de forças onde cada esfera muda o significado das outras.",
+                        "Your mental space right now is not a static list of feelings—it is a dynamic field of forces where each sphere bends the meaning of the others.",
+                        "Tu espacio mental ahora mismo no es una lista estática de sentimientos: es un campo dinámico de fuerzas donde cada esfera cambia el significado de las demás.",
+                        "Votre espace mental n'est pas une liste statique de sentiments : c'est un champ dynamique de forces où chaque sphère modifie le sens des autres."
+                    )
+                )
                 appendLine()
-                appendLine("### 1. The Hidden Geometry of Your Moment")
+                appendLine(
+                    L(
+                        lang,
+                        "### 1. A Geometria Oculta do Seu Momento",
+                        "### 1. The Hidden Geometry of Your Moment",
+                        "### 1. La Geometría Oculta de Tu Momento",
+                        "### 1. La Géométrie Cachée de Votre Moment"
+                    )
+                )
                 if (affinityPair != null) {
-                    appendLine("By placing **${affinityPair.first.name}** and **${affinityPair.second.name}** in close proximity, your intuition is signaling an active alliance between them. What we keep close in our field of attention forms our *perceptual anchor* — the lens through which your body is currently reading the world.")
+                    val a = affinityPair.first.name
+                    val b = affinityPair.second.name
+                    appendLine(
+                        L(
+                            lang,
+                            "Ao aproximar **$a** de **$b**, sua intuição sinaliza uma aliança ativa entre elas. O que mantemos perto no campo da atenção forma nossa *âncora perceptiva* — a lente com que o seu corpo lê o mundo agora.",
+                            "By placing **$a** and **$b** in close proximity, your intuition is signaling an active alliance between them. What we keep close in our field of attention forms our *perceptual anchor* — the lens through which your body is currently reading the world.",
+                            "Al colocar **$a** y **$b** muy cerca, tu intuición señala una alianza activa entre ellas. Lo que mantenemos cerca en nuestro campo de atención forma nuestra *ancla perceptiva*: la lente con la que tu cuerpo lee el mundo ahora.",
+                            "En plaçant **$a** et **$b** tout près l'une de l'autre, votre intuition signale une alliance active entre elles. Ce que nous gardons proche dans notre champ d'attention forme notre *ancre perceptive* : la lentille avec laquelle votre corps lit le monde en ce moment."
+                        )
+                    )
                 }
                 if (polarityPair != null && polarityPair != affinityPair) {
+                    val p1 = polarityPair.first.name
+                    val p2 = polarityPair.second.name
                     appendLine()
-                    appendLine("Meanwhile, the distance separating **${polarityPair.first.name}** and **${polarityPair.second.name}** reveals a protective boundary. Your psyche is keeping these two poles apart so that one does not overwhelm or silence the other.")
+                    appendLine(
+                        L(
+                            lang,
+                            "Enquanto isso, a distância entre **$p1** e **$p2** revela uma fronteira de proteção. Sua psique mantém esses dois polos afastados para que um não sobreponha nem silencie o outro.",
+                            "Meanwhile, the distance separating **$p1** and **$p2** reveals a protective boundary. Your psyche is keeping these two poles apart so that one does not overwhelm or silence the other.",
+                            "Mientras tanto, la distancia que separa **$p1** de **$p2** revela una frontera de protección. Tu psique mantiene estos dos polos alejados para que uno no abrume ni silencie al otro.",
+                            "Pendant ce temps, la distance qui sépare **$p1** de **$p2** révèle une frontière de protection. Votre psyché maintient ces deux pôles éloignés pour que l'un n'écrase ni ne fasse taire l'autre."
+                        )
+                    )
                 }
                 appendLine()
-                appendLine("### 2. The Central Insight: Beyond the Dilemma")
+                appendLine(
+                    L(
+                        lang,
+                        "### 2. A Ideia Central: Além do Dilema",
+                        "### 2. The Central Insight: Beyond the Dilemma",
+                        "### 2. La Idea Central: Más Allá del Dilema",
+                        "### 2. L'Idée Centrale : Au-delà du Dilemme"
+                    )
+                )
                 if (userContext.isNotBlank()) {
-                    appendLine("Reflecting on what you shared—*\"$userContext\"*—notice how tension arises not because one force is 'wrong', but because two legitimate movements of your vital drive to expand and preserve yourself are negotiating their rhythm.")
+                    appendLine(
+                        L(
+                            lang,
+                            "Olhando para o que você trouxe — *\"$userContext\"* — repare que a tensão não nasce porque uma força esteja 'errada', mas porque dois movimentos legítimos da sua potência vital — expandir e preservar — estão negociando o ritmo.",
+                            "Reflecting on what you shared—*\"$userContext\"*—notice how tension arises not because one force is 'wrong', but because two legitimate movements of your vital drive to expand and preserve yourself are negotiating their rhythm.",
+                            "Al mirar lo que compartiste —*\"$userContext\"*— observa que la tensión no surge porque una fuerza esté 'mal', sino porque dos movimientos legítimos de tu impulso vital —expandirte y preservarte— están negociando su ritmo.",
+                            "En regardant ce que vous avez partagé —*\"$userContext\"*— remarquez que la tension ne naît pas parce qu'une force serait « mauvaise », mais parce que deux mouvements légitimes de votre élan vital — s'ouvrir et se préserver — négocient leur rythme."
+                        )
+                    )
                 }
                 appendLine()
-                appendLine("### 3. What Each Sphere Reveals Today")
+                appendLine(
+                    L(
+                        lang,
+                        "### 3. O Que Cada Esfera Revela Hoje",
+                        "### 3. What Each Sphere Reveals Today",
+                        "### 3. Lo Que Cada Esfera Revela Hoy",
+                        "### 3. Ce Que Chaque Sphère Révèle Aujourd'hui"
+                    )
+                )
                 val spheresToRead = if (spatialSpheres.isNotEmpty()) spatialSpheres else conceptsList.map {
                     SphereSpatialDescriptor(it, 1.3f, 0.45f, 0f, 0f)
                 }
@@ -1145,10 +1256,23 @@ class GroundingAndAiService(private val context: Context) {
 
         if (lang != "pt") {
             val snippet = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..200 }?.trim()
+            val weightPct = (sphere.weightHeaviness * 100).toInt()
             return if (!snippet.isNullOrBlank()) {
-                "$snippet. In your constellation today (Weight ${(sphere.weightHeaviness * 100).toInt()}%), it shapes the tone of your inner space."
+                L(
+                    lang,
+                    "$snippet. Na sua constelação de hoje (peso $weightPct%), ela dá o tom do seu espaço interno.",
+                    "$snippet. In your constellation today (Weight $weightPct%), it shapes the tone of your inner space.",
+                    "$snippet. En tu constelación de hoy (peso $weightPct%), define el tono de tu espacio interior.",
+                    "$snippet. Dans votre constellation d'aujourd'hui (poids $weightPct%), elle donne le ton de votre espace intérieur."
+                )
             } else {
-                "Acts as a vital lens in your mental constellation (Weight ${(sphere.weightHeaviness * 100).toInt()}%), balancing impulse and reflection."
+                L(
+                    lang,
+                    "Funciona como uma lente vital na sua constelação mental (peso $weightPct%), equilibrando impulso e reflexão.",
+                    "Acts as a vital lens in your mental constellation (Weight $weightPct%), balancing impulse and reflection.",
+                    "Actúa como una lente vital en tu constelación mental (peso $weightPct%), equilibrando impulso y reflexión.",
+                    "Elle agit comme une lentille vitale dans votre constellation mentale (poids $weightPct%), équilibrant l'élan et la réflexion."
+                )
             }
         }
 
@@ -1349,22 +1473,59 @@ class GroundingAndAiService(private val context: Context) {
             ?: "Presença"
 
         if (languageCode.lowercase() != "pt") {
-            val rngEn = Random(seed)
-            val breathEn = listOf(
-                "Inhale 4s through the nose welcoming **$primary**; exhale 6s through the mouth letting the weight sink.",
-                "Belly breathing with hands on the abdomen, 5s in / 5s out, 6 rounds.",
-                "Box breathing 4-4-4-4 for 4 rounds to give **$primary** a firm contour."
+            val lang = languageCode.lowercase()
+            val rng = Random(seed)
+            val breath = listOf(
+                L(lang, "Inspire 4s pelo nariz acolhendo **$primary**; solte 6s pela boca deixando o peso assentar.",
+                    "Inhale 4s through the nose welcoming **$primary**; exhale 6s through the mouth letting the weight sink.",
+                    "Inhala 4s por la nariz acogiendo **$primary**; exhala 6s por la boca dejando que el peso baje.",
+                    "Inspirez 4s par le nez en accueillant **$primary** ; expirez 6s par la bouche en laissant le poids descendre."),
+                L(lang, "Respiração abdominal com as mãos no abdômen, 5s inspira / 5s expira, 6 ciclos.",
+                    "Belly breathing with hands on the abdomen, 5s in / 5s out, 6 rounds.",
+                    "Respiración abdominal con las manos en el abdomen, 5s dentro / 5s fuera, 6 ciclos.",
+                    "Respiration abdominale, mains sur le ventre, 5s inspir / 5s expir, 6 cycles."),
+                L(lang, "Respiração quadrada 4-4-4-4 por 4 ciclos para dar contorno firme a **$primary**.",
+                    "Box breathing 4-4-4-4 for 4 rounds to give **$primary** a firm contour.",
+                    "Respiración cuadrada 4-4-4-4 durante 4 ciclos para dar contorno firme a **$primary**.",
+                    "Respiration carrée 4-4-4-4 pendant 4 cycles pour donner un contour net à **$primary**.")
             )
-            val bodyEn = listOf(
-                "Soften your gaze to the room edges for 60s without moving your head.",
-                "Progressive release: shoulders 5s tense-and-let-go, jaw unclench, fists open.",
-                "5-4-3-2-1 sensory grounding: name 5 seen, 4 touched, 3 heard, 2 smelled, 1 tasted."
+            val body = listOf(
+                L(lang, "Suavize o olhar pelas bordas do ambiente por 60s sem mover a cabeça.",
+                    "Soften your gaze to the room edges for 60s without moving your head.",
+                    "Suaviza la mirada hacia los bordes de la sala durante 60s sin mover la cabeza.",
+                    "Adoucissez le regard vers les bords de la pièce pendant 60s sans bouger la tête."),
+                L(lang, "Soltura progressiva: ombros 5s tensos e relaxados, relaxe a mandíbula, abra as mãos.",
+                    "Progressive release: shoulders 5s tense-and-let-go, jaw unclench, fists open.",
+                    "Liberación progresiva: hombros 5s tensos y suelta, relaja la mandíbula, abre las manos.",
+                    "Relâchement progressif : épaules 5s tendues puis relâchées, mâchoire desserrée, mains ouvertes."),
+                L(lang, "Ancoragem sensorial 5-4-3-2-1: nomeie 5 vistas, 4 tocadas, 3 ouvidas, 2 cheiradas, 1 saboreada.",
+                    "5-4-3-2-1 sensory grounding: name 5 seen, 4 touched, 3 heard, 2 smelled, 1 tasted.",
+                    "Anclaje sensorial 5-4-3-2-1: nombra 5 vistas, 4 tocadas, 3 oídas, 2 olidas, 1 saboreada.",
+                    "Ancrage sensoriel 5-4-3-2-1 : nommez 5 choses vues, 4 touchées, 3 entendues, 2 senties, 1 goûtée.")
             )
             return buildString {
-                appendLine("**3-Step Embodied Reconfiguration ($primary · $secondary):**")
-                appendLine("- **1. Breath:** ${breathEn[rngEn.nextInt(breathEn.size)]}")
-                appendLine("- **2. Body:** ${bodyEn[rngEn.nextInt(bodyEn.size)]}")
-                appendLine("- **3. Listening:** Close your eyes for 45 seconds following only the background harmony, imagining **$primary** and **$secondary** trading places.")
+                appendLine(
+                    L(lang,
+                        "**Reconfiguração Corporal em 3 Passos ($primary · $secondary):**",
+                        "**3-Step Embodied Reconfiguration ($primary · $secondary):**",
+                        "**Reconfiguración Corporal en 3 Pasos ($primary · $secondary):**",
+                        "**Reconfiguration Corporelle en 3 Étapes ($primary · $secondary) :**")
+                )
+                appendLine(L(lang, "- **1. Respiração:** ${breath[rng.nextInt(breath.size)]}",
+                    "- **1. Breath:** ${breath[rng.nextInt(breath.size)]}",
+                    "- **1. Respiración:** ${breath[rng.nextInt(breath.size)]}",
+                    "- **1. Respiration :** ${breath[rng.nextInt(breath.size)]}"))
+                appendLine(L(lang, "- **2. Corpo:** ${body[rng.nextInt(body.size)]}",
+                    "- **2. Body:** ${body[rng.nextInt(body.size)]}",
+                    "- **2. Cuerpo:** ${body[rng.nextInt(body.size)]}",
+                    "- **2. Corps :** ${body[rng.nextInt(body.size)]}"))
+                appendLine(
+                    L(lang,
+                        "- **3. Escuta:** Feche os olhos por 45 segundos seguindo apenas a harmonia de fundo, imaginando **$primary** e **$secondary** trocando de lugar.",
+                        "- **3. Listening:** Close your eyes for 45 seconds following only the background harmony, imagining **$primary** and **$secondary** trading places.",
+                        "- **3. Escucha:** Cierra los ojos 45 segundos siguiendo solo la armonía de fondo, imaginando **$primary** y **$secondary** intercambiando lugares.",
+                        "- **3. Écoute :** Fermez les yeux 45 secondes en suivant seulement l'harmonie de fond, en imaginant **$primary** et **$secondary** échanger leurs places.")
+                )
             }.trim()
         }
 

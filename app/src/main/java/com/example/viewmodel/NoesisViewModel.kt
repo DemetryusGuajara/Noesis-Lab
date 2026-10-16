@@ -19,6 +19,9 @@ import com.example.data.UserPreferencesState
 import com.example.i18n.AppLanguage
 import com.example.i18n.AppLocalizer
 import com.example.i18n.StringsCatalog
+import com.example.i18n.zoneDescription
+import com.example.i18n.zoneDomain
+import com.example.i18n.zoneTitle
 import com.example.network.GroundingAndAiService
 import com.example.network.GroundingBundle
 import com.example.network.ProviderVerificationReport
@@ -153,6 +156,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         val journalEntries = core.fifth.second
 
         val strings = AppLocalizer.getCatalog(prefs.language)
+        // Keep non-Compose consumers (media notification, data layer) in sync.
+        AppLocalizer.setActive(strings)
 
         // Convert particles to acoustic nodes and update modular synthesizer in real time
         val acousticNodes = particles.map { p ->
@@ -208,7 +213,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
 
         // Diagnose Tab 2 Architectural Spaces automatically from Tab 1 spheres (Item 8)
         val diagnosedZones = diagnoseArchitecturalSpacesFromField(
-            baseZones, particles, strings.languageCode,
+            baseZones, particles, strings.languageCode, strings,
             arousal = prefs.bioArousal, valence = prefs.bioValence, focus = prefs.bioFocus
         )
 
@@ -261,6 +266,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         zones: List<ArchitecturalZoneEntity>,
         particles: List<ConceptParticleEntity>,
         langCode: String,
+        strings: StringsCatalog,
         arousal: Float,
         valence: Float,
         focus: Float
@@ -272,7 +278,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     diagnosedClarity = z.luminosity,
                     diagnosedPressure = z.tensionIndex,
                     influencingConcepts = emptyList(),
-                    empiricalInterpretation = z.architecturalDescription
+                    empiricalInterpretation = strings.zoneDescription(z.zoneId, z.architecturalDescription)
                 )
             }
         }
@@ -309,7 +315,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 clarityPct = (diagnosedClarity * 100).toInt(),
                 pressurePct = (diagnosedPressure * 100).toInt(),
                 influencers = topNames,
-                langCode = langCode
+                langCode = langCode,
+                strings = strings
             )
 
             DiagnosedZoneState(
@@ -341,29 +348,66 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         clarityPct: Int,
         pressurePct: Int,
         influencers: List<String>,
-        langCode: String
+        langCode: String,
+        strings: StringsCatalog
     ): String {
-        val conceptsStr = if (influencers.isNotEmpty()) influencers.joinToString(" e ") else "suas esferas atuais"
+        val lang = langCode.lowercase()
+        val andWord = when {
+            lang == "en" -> " and "
+            lang == "es" -> " y "
+            lang == "fr" -> " et "
+            else -> " e "
+        }
+        val fallbackSpheres = when {
+            lang == "en" -> "your current spheres"
+            lang == "es" -> "tus esferas actuales"
+            lang == "fr" -> "vos sphères actuelles"
+            else -> "suas esferas atuais"
+        }
+        val conceptsStr = if (influencers.isNotEmpty()) influencers.joinToString(andWord) else fallbackSpheres
         val isClear = clarityPct >= 60
         val isPressured = pressurePct >= 55
+        val zoneTitle = strings.zoneTitle(zone.zoneId, zone.customTitle)
+        val zoneDomain = strings.zoneDomain(zone.zoneId, zone.conceptDomain)
 
-        if (langCode.lowercase() != "pt") {
-            val reading = when {
-                isClear && !isPressured -> "an open sanctuary ($clarityPct% clarity, only $pressurePct% pressure): **$conceptsStr** flow freely here, and this room returns energy instead of consuming it. Let this area set the pace for the rest of the day."
-                isClear && isPressured -> "a tense lucidity ($clarityPct% clarity under $pressurePct% pressure): you see **$conceptsStr** clearly, but carrying them costs effort. Clarity without rest becomes vigilance — schedule deliberate decompression."
-                !isClear && !isPressured -> "a soft fog ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** rest here unresolved but unhurried. Not everything needs deciphering today; some rooms heal by being left alone."
-                else -> "a storm cell ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** churn here. Reduce one demand, name one need out loud, and let the pressure drop before deciding anything."
+        return when (lang) {
+            "en" -> {
+                val reading = when {
+                    isClear && !isPressured -> "an open sanctuary ($clarityPct% clarity, only $pressurePct% pressure): **$conceptsStr** flow freely here, and this room returns energy instead of consuming it. Let this area set the pace for the rest of the day."
+                    isClear && isPressured -> "a tense lucidity ($clarityPct% clarity under $pressurePct% pressure): you see **$conceptsStr** clearly, but carrying them costs effort. Clarity without rest becomes vigilance — schedule deliberate decompression."
+                    !isClear && !isPressured -> "a soft fog ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** rest here unresolved but unhurried. Not everything needs deciphering today; some rooms heal by being left alone."
+                    else -> "a storm cell ($clarityPct% clarity, $pressurePct% pressure): **$conceptsStr** churn here. Reduce one demand, name one need out loud, and let the pressure drop before deciding anything."
+                }
+                "Empirically, the position and weight of **$conceptsStr** shape **$zoneTitle** into $reading"
             }
-            return "Empirically, the position and weight of **$conceptsStr** shape **${zone.customTitle}** into $reading"
+            "es" -> {
+                val reading = when {
+                    isClear && !isPressured -> "un santuario abierto ($clarityPct% de claridad y solo $pressurePct% de presión): **$conceptsStr** circulan libres aquí, y este ambiente devuelve energía en lugar de consumirla. Deja que este lugar marque el ritmo del resto del día."
+                    isClear && isPressured -> "una lucidez tensa ($clarityPct% de claridad bajo $pressurePct% de presión): ves **$conceptsStr** con nitidez, pero sostenerlos cuesta esfuerzo. Claridad sin descanso se vuelve vigilancia: programa una descompresión deliberada."
+                    !isClear && !isPressured -> "una niebla amable ($clarityPct% de claridad, $pressurePct% de presión): **$conceptsStr** descansan aquí sin resolverse y sin prisa. No todo necesita descifrarse hoy; algunas salas sanan si las dejamos en paz."
+                    else -> "una zona de tormenta ($clarityPct% de claridad, $pressurePct% de presión): **$conceptsStr** se agitan aquí. Reduce una exigencia, nombra en voz alta una necesidad y deja que la presión baje antes de decidir nada."
+                }
+                "Por la posición y el peso de **$conceptsStr** en la Pestaña 1, el ambiente **$zoneTitle** ($zoneDomain) se configura hoy como $reading"
+            }
+            "fr" -> {
+                val reading = when {
+                    isClear && !isPressured -> "un sanctuaire ouvert ($clarityPct% de clarté, seulement $pressurePct% de pression) : **$conceptsStr** circulent librement ici, et cette pièce rend de l'énergie au lieu d'en consommer. Laissez cet espace donner le rythme du reste de la journée."
+                    isClear && isPressured -> "une lucidité tendue ($clarityPct% de clarté sous $pressurePct% de pression) : vous voyez **$conceptsStr** avec netteté, mais les porter demande un effort. La clarté sans repos devient de la vigilance — planifiez une décompression délibérée."
+                    !isClear && !isPressured -> "une brume douce ($clarityPct% de clarté, $pressurePct% de pression) : **$conceptsStr** reposent ici sans être résolus et sans hâte. Tout n'a pas besoin d'être déchiffré aujourd'hui ; certaines pièces guérissent quand on les laisse tranquilles."
+                    else -> "une zone de tempête ($clarityPct% de clarté, $pressurePct% de pression) : **$conceptsStr** s'agitent ici. Réduisez une exigence, nommez à voix haute un besoin et laissez la pression retomber avant de décider quoi que ce soit."
+                }
+                "Par la position et le poids de **$conceptsStr** dans l'Onglet 1, l'ambiance **$zoneTitle** ($zoneDomain) se présente aujourd'hui comme $reading"
+            }
+            else -> {
+                val reading = when {
+                    isClear && !isPressured -> "um santuário aberto ($clarityPct% de abertura, só $pressurePct% de pressão): **$conceptsStr** circulam livres por aqui, e este ambiente devolve energia em vez de consumi-la. Deixe este cômodo ditar o ritmo do resto do dia."
+                    isClear && isPressured -> "uma lucidez tensa ($clarityPct% de clareza sob $pressurePct% de pressão): você enxerga **$conceptsStr** com nitidez, mas sustentá-los custa esforço. Clareza sem descanso vira vigilância — programe descompressão deliberada."
+                    !isClear && !isPressured -> "uma névoa mansa ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** repousam aqui sem resolução e sem pressa. Nem tudo precisa ser decifrado hoje; alguns cômodos se curam sendo deixados em paz."
+                    else -> "uma zona de tempestade ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** se agitam aqui. Reduza uma exigência, nomeie uma necessidade em voz alta e deixe a pressão baixar antes de decidir qualquer coisa."
+                }
+                "Pela posição e pelo peso de **$conceptsStr** na Aba 1, o ambiente **$zoneTitle** (${zoneDomain.lowercase()}) configura-se hoje como $reading"
+            }
         }
-
-        val reading = when {
-            isClear && !isPressured -> "um santuário aberto ($clarityPct% de abertura, só $pressurePct% de pressão): **$conceptsStr** circulam livres por aqui, e este ambiente devolve energia em vez de consumi-la. Deixe este cômodo ditar o ritmo do resto do dia."
-            isClear && isPressured -> "uma lucidez tensa ($clarityPct% de clareza sob $pressurePct% de pressão): você enxerga **$conceptsStr** com nitidez, mas sustentá-los custa esforço. Clareza sem descanso vira vigilância — programe descompressão deliberada."
-            !isClear && !isPressured -> "uma névoa mansa ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** repousam aqui sem resolução e sem pressa. Nem tudo precisa ser decifrado hoje; alguns cômodos se curam sendo deixados em paz."
-            else -> "uma zona de tempestade ($clarityPct% de clareza, $pressurePct% de pressão): **$conceptsStr** se agitam aqui. Reduza uma exigência, nomeie uma necessidade em voz alta e deixe a pressão baixar antes de decidir qualquer coisa."
-        }
-        return "Pela posição e pelo peso de **$conceptsStr** na Aba 1, o ambiente **${zone.customTitle}** (${zone.conceptDomain.lowercase()}) configura-se hoje como $reading"
     }
 
     fun toggleHelpModal(show: Boolean) {
@@ -440,7 +484,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         val cleanName = formatConceptTitleCase(rawName)
         if (cleanName.isBlank()) return
 
-        val preset = resolveArchetypeSpec(cleanName, archetypeKey)
+        val preset = resolveArchetypeSpec(cleanName, archetypeKey, uiState.value.strings)
         soundEngine.triggerSphereTouchChord(
             importanceMass = preset.mass,
             weightHeaviness = preset.charge,
@@ -683,12 +727,12 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         }.toString()
 
         val conceptTitleSummary = state.particles.take(4).joinToString(" · ") { formatConceptTitleCase(it.name) }
-            .ifBlank { "Estado Mental" }
+            .ifBlank { state.strings.uiMentalStateLabel }
         val latestLog = state.currentSessionReading
         val userNotes = state.currentDraftPrompt.takeIf { it.isNotBlank() }
             ?: latestLog?.userPrompt
             ?: ""
-        val narrative = latestLog?.narrativeResponse ?: "Snapshot salvo diretamente do campo gravitacional."
+        val narrative = latestLog?.narrativeResponse ?: state.strings.uiSnapshotSavedNote
         val somatic = latestLog?.somaticSuggestion ?: ""
 
         return repository.addJournalEntry(
@@ -745,7 +789,11 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 val history = repository.observeChatMessages(entryId)
                     .let { flow -> flow.first() }
                 val recap = history.joinToString("\n") { m ->
-                    if (m.role == "user") "Usuário: ${m.text}" else "Noesis: ${m.text.take(500)}"
+                    if (m.role == "user") {
+                        "${state.strings.uiUserPrefix}: ${m.text}"
+                    } else {
+                        "${state.strings.uiAssistantPrefix}: ${m.text.take(500)}"
+                    }
                 }
                 val conceptNames = state.particles.map { formatConceptTitleCase(it.name) }
                 val particlesSummary = state.particles.joinToString("; ") {
@@ -852,7 +900,8 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                 val report = networkService.verifyProviderAndPingModels(
                     rawBaseUrl = resolvedUrl,
                     apiKey = apiKeyText.trim(),
-                    pingWord = pingWord
+                    pingWord = pingWord,
+                    langCode = uiState.value.strings.languageCode
                 )
                 _lastVerificationReport.value = report
 
@@ -868,7 +917,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     ).let { incoming ->
                         val current = repository.getProviderKeys(providerId).firstOrNull { it.id == keyId }
                         incoming.copy(
-                            label = current?.label ?: "Chave",
+                            label = current?.label ?: uiState.value.strings.uiKeyLabel,
                             sortOrder = current?.sortOrder ?: 0
                         )
                     }
@@ -973,27 +1022,27 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
         val note: String
     )
 
-    private fun resolveArchetypeSpec(name: String, keyHint: String): ArchetypeSpec {
+    private fun resolveArchetypeSpec(name: String, keyHint: String, strings: StringsCatalog): ArchetypeSpec {
         val lower = name.lowercase()
         return when {
             keyHint == "FEAR" || lower.contains("medo") || lower.contains("fear") || lower.contains("dúvida") || lower.contains("ansiedade") ->
-                ArchetypeSpec("FEAR", 1.35f, 0.78f, 210f, -1.2f, 0xFF7A6F9B, "Sinal de cautela e proteção que pede segurança antes do próximo passo.")
+                ArchetypeSpec("FEAR", 1.35f, 0.78f, 210f, -1.2f, 0xFF7A6F9B, strings.archetypeNoteFear)
             keyHint == "DESIRE" || lower.contains("desejo") || lower.contains("desire") || lower.contains("paixão") || lower.contains("vontade") ->
-                ArchetypeSpec("DESIRE", 2.05f, 0.42f, 285f, 1.2f, 0xFFD97757, "Energia de atração, entusiasmo e vontade de criar ou viver algo novo.")
+                ArchetypeSpec("DESIRE", 2.05f, 0.42f, 285f, 1.2f, 0xFFD97757, strings.archetypeNoteDesire)
             keyHint == "TIME" || lower.contains("tempo") || lower.contains("time") || lower.contains("saudade") || lower.contains("futuro") ->
-                ArchetypeSpec("TIME", 1.65f, 0.38f, 340f, 0.6f, 0xFFD4AF59, "A relação com o ritmo das coisas, a memória e a paciência com os processos.")
+                ArchetypeSpec("TIME", 1.65f, 0.38f, 340f, 0.6f, 0xFFD4AF59, strings.archetypeNoteTime)
             keyHint == "IDENTITY" || lower.contains("identidade") || lower.contains("identity") || lower.contains("eu") ->
-                ArchetypeSpec("IDENTITY", 1.50f, 0.35f, 360f, 0.9f, 0xFF5A8F99, "Aquilo que define seus valores, seus limites e sua história atual.")
+                ArchetypeSpec("IDENTITY", 1.50f, 0.35f, 360f, 0.9f, 0xFF5A8F99, strings.archetypeNoteIdentity)
             keyHint == "JUSTICE" || lower.contains("justiça") || lower.contains("justice") || lower.contains("equilíbrio") ->
-                ArchetypeSpec("JUSTICE", 1.45f, 0.25f, 396f, 0.3f, 0xFF7D9471, "Busca por harmonia, reciprocidade e escolhas justas no seu caminho.")
+                ArchetypeSpec("JUSTICE", 1.45f, 0.25f, 396f, 0.3f, 0xFF7D9471, strings.archetypeNoteJustice)
             keyHint == "DOMINATION" || lower.contains("dominação") || lower.contains("controle") || lower.contains("cobrança") ->
-                ArchetypeSpec("DOMINATION", 2.10f, 0.85f, 165f, -1.1f, 0xFFB84A39, "Tentativa de controlar tudo pela força ou excesso de autocobrança.")
+                ArchetypeSpec("DOMINATION", 2.10f, 0.85f, 165f, -1.1f, 0xFFB84A39, strings.archetypeNoteDomination)
             keyHint == "POWER" || lower.contains("poder") || lower.contains("força") || lower.contains("foco") ->
-                ArchetypeSpec("POWER", 1.85f, 0.50f, 290f, 1.3f, 0xFFC98A4B, "Capacidade real de agir, concentrar energia e transformar ideias em realidade.")
+                ArchetypeSpec("POWER", 1.85f, 0.50f, 290f, 1.3f, 0xFFC98A4B, strings.archetypeNotePower)
             keyHint == "ANGER" || lower.contains("raiva") || lower.contains("irritação") || lower.contains("fúria") ->
-                ArchetypeSpec("ANGER", 2.25f, 0.88f, 150f, 1.6f, 0xFFD14949, "Energia intensa que surge quando um limite importante foi ultrapassado.")
+                ArchetypeSpec("ANGER", 2.25f, 0.88f, 150f, 1.6f, 0xFFD14949, strings.archetypeNoteAnger)
             keyHint == "EMPTINESS" || lower.contains("silêncio") || lower.contains("calma") || lower.contains("liberdade") ->
-                ArchetypeSpec("EMPTINESS", 0.75f, 0.15f, 460f, 0.1f, 0xFF8AA37B, "Espaço aberto de leveza e alívio que permite enxergar tudo com clareza.")
+                ArchetypeSpec("EMPTINESS", 0.75f, 0.15f, 460f, 0.1f, 0xFF8AA37B, strings.archetypeNoteEmptiness)
             else -> {
                 val hash = abs(name.hashCode())
                 val mass = (0.65f + (hash % 165) / 100f).coerceIn(0.4f, 2.5f)
@@ -1007,7 +1056,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     frequencyHz = freq,
                     spin = ((hash % 200) - 100) / 100f,
                     colorHex = 0xFFD97757,
-                    note = "Conceito ou sensação livre que compõe o seu estado mental hoje."
+                    note = strings.archetypeNoteCustom
                 )
             }
         }

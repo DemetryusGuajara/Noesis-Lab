@@ -44,6 +44,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.example.i18n.zoneDescription
+import com.example.i18n.zoneDomain
+import com.example.i18n.zoneTitle
 import com.example.ui.components.drawMentalSpaces
 import com.example.ui.components.rememberSpacesPalette
 import androidx.compose.ui.draw.clip
@@ -203,7 +206,8 @@ fun ArchitecturalMapScreen(
                         showGrid = true,
                         alpha = 1f,
                         phase = archPhaseState.value,
-                        scale = 1f
+                        scale = 1f,
+                        strings = strings
                     )
                 }
 
@@ -240,20 +244,20 @@ fun ArchitecturalMapScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = zone.customTitle,
+                        text = strings.zoneTitle(zone.zoneId, zone.customTitle),
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = zone.conceptDomain,
+                        text = strings.zoneDomain(zone.zoneId, zone.conceptDomain),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = zone.architecturalDescription,
+                        text = strings.zoneDescription(zone.zoneId, zone.architecturalDescription),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -269,7 +273,7 @@ fun ArchitecturalMapScreen(
                                     onClick = {},
                                     label = {
                                         Text(
-                                            text = "Esfera Influente: $concept",
+                                            text = "${strings.uiInfluencingSphere}: $concept",
                                             style = MaterialTheme.typography.labelSmall
                                         )
                                     }

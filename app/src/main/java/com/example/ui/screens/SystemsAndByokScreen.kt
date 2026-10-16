@@ -228,7 +228,9 @@ fun SystemsAndByokScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy 'às' HH:mm", Locale.getDefault()) }
+                    val dateFormat = remember(strings.languageCode) {
+                        SimpleDateFormat(journalDatePattern(strings.languageCode), appLocaleFor(strings.languageCode))
+                    }
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
                             onClick = { journalDropdownExpanded = true },
@@ -368,7 +370,12 @@ fun SystemsAndByokScreen(
                         FilterChip(
                             selected = uiState.preferences.language == lang,
                             onClick = { onSelectLanguage(lang) },
-                            label = { Text("${lang.nativeName} (${lang.code.uppercase()})") },
+                            label = {
+                                Text(
+                                    if (lang == AppLanguage.SYSTEM) strings.uiLanguageSystem
+                                    else "${lang.nativeName} (${lang.code.uppercase()})"
+                                )
+                            },
                             modifier = Modifier.testTag("lang_chip_${lang.code}")
                         )
                     }
@@ -410,7 +417,9 @@ fun SystemsAndByokScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${strings.dbStatsLabel} ${uiState.particles.size} esferas · ${uiState.journalEntries.size} artigos no diário · ${uiState.logs.size} leituras",
+                    text = "${strings.dbStatsLabel} ${uiState.particles.size} ${strings.uiSpheresCount} · " +
+                        "${uiState.journalEntries.size} ${strings.uiJournalArticlesCount} · " +
+                        "${uiState.logs.size} ${strings.uiReadingsCount}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -469,8 +478,9 @@ fun SystemsAndByokScreen(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             DevDiagnosticsCard(
+                strings = strings,
                 providerSummaries = uiState.providers.map { p ->
-                    "${p.name} (${p.selectedModel.ifBlank { "sem modelo" }})" + if (p.isActive) " [ativo]" else ""
+                    "${p.name} (${p.selectedModel.ifBlank { strings.uiNoModels }})" + if (p.isActive) " [${strings.activeModelBadge.lowercase(Locale.getDefault())}]" else ""
                 }
             )
         }
@@ -579,7 +589,7 @@ fun SystemsAndByokScreen(
                                     text = if (report.connectionSuccess) {
                                         "✓ ${report.verifiedResponsiveModels.size}/${report.totalDiscoveredModels} ${strings.verifiedModelsCount} (200 OK)"
                                     } else {
-                                        "⚠ ${report.errorMessage ?: "Erro na verificação"}"
+                                        "⚠ ${report.errorMessage ?: strings.uiVerificationError}"
                                     },
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (report.connectionSuccess) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
@@ -588,9 +598,9 @@ fun SystemsAndByokScreen(
                                     Spacer(modifier = Modifier.height(6.dp))
                                     report.pingDetails.forEach { detail ->
                                         val statusBadge = if (detail.respondedOk) {
-                                            "✓ 200 OK (${detail.latencyMs}ms)"
+                                            "✓ ${strings.uiPingOk} (${detail.latencyMs}ms)"
                                         } else {
-                                            "✗ HTTP ${detail.statusCode} (Filtrado)"
+                                            "✗ ${strings.uiPingHttp} ${detail.statusCode} (${strings.uiPingFiltered})"
                                         }
                                         Text(
                                             text = "• ${detail.modelId} → $statusBadge",
@@ -606,14 +616,17 @@ fun SystemsAndByokScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Meus provedores (OpenAI-compatible, editáveis)",
+                    text = strings.uiMyProvidersCustom,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
-                CustomProviderCreator(onEnsureCustomProvider = onEnsureCustomProvider)
+                CustomProviderCreator(
+                    strings = strings,
+                    onEnsureCustomProvider = onEnsureCustomProvider
+                )
 
                 Spacer(modifier = Modifier.height(6.dp))
                 uiState.providers.filter { it.isCustom }.forEach { provider ->
@@ -692,13 +705,13 @@ fun SystemsAndByokScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.Info,
-                            contentDescription = "Sobre",
+                            contentDescription = strings.uiAbout,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Sobre o Noesis Lab",
+                            text = strings.uiAboutApp,
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold
@@ -717,7 +730,7 @@ fun SystemsAndByokScreen(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_github),
-                            contentDescription = "Repositório no GitHub",
+                            contentDescription = strings.uiGithubRepo,
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp)
                         )
@@ -732,7 +745,7 @@ fun SystemsAndByokScreen(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
                     Text(
-                        text = "Versão: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                        text = "${strings.uiVersionLabel}: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -759,14 +772,14 @@ fun SystemsAndByokScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Considere apoiar o desenvolvimento desse projeto",
+                                text = strings.uiSupportTitle,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Medium
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Toque no ícone do GitHub para apoiar via Buy Me a Coffee no README",
+                                text = strings.uiSupportBody,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -781,7 +794,7 @@ fun SystemsAndByokScreen(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_github),
-                                contentDescription = "Apoiar no GitHub",
+                                contentDescription = strings.uiSupportGithubCd,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -798,7 +811,7 @@ fun SystemsAndByokScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Projeto desenvolvido com amor ❤️ Por ",
+                        text = strings.uiMadeWithLove,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -839,7 +852,9 @@ private fun JournalArticleModal(
     onClose: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("dd 'de' MMMM 'de' yyyy · HH:mm", Locale.getDefault()) }
+    val dateFormat = remember(strings.languageCode) {
+        SimpleDateFormat(journalDatePattern(strings.languageCode), appLocaleFor(strings.languageCode))
+    }
     val formattedDate = dateFormat.format(Date(entry.timestamp))
     val textMeasurer = rememberTextMeasurer()
 
@@ -901,7 +916,7 @@ private fun JournalArticleModal(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "DIÁRIO DE BORDO · REGISTRO DE ESTADO",
+                            text = strings.uiJournalArticleHeader,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
@@ -933,7 +948,7 @@ private fun JournalArticleModal(
 
                 // 1. Snapshot of the Gravitational Map (Aba 1)
                 Text(
-                    text = "1. Fotografia do Campo de Emoções e Ideias",
+                    text = strings.uiJournalSection1,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -1015,7 +1030,7 @@ private fun JournalArticleModal(
                 // 2. Snapshot of Diagnosed Mental Rooms (Aba 2)
                 if (parsedZones.isNotEmpty()) {
                     Text(
-                        text = "2. Diagnóstico dos Espaços da Mente na Data",
+                        text = strings.uiJournalSection2,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1041,7 +1056,7 @@ private fun JournalArticleModal(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Clareza ${(z.clarity * 100).toInt()}% · Pressão ${(z.pressure * 100).toInt()}%",
+                                        text = "${strings.uiClarityLabel} ${(z.clarity * 100).toInt()}% · ${strings.uiPressureLabel} ${(z.pressure * 100).toInt()}%",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
@@ -1065,7 +1080,7 @@ private fun JournalArticleModal(
                 // 3. User Notes & Generated Reflection (Aba 3)
                 if (entry.userNotesPrompt.isNotBlank()) {
                     Text(
-                        text = "3. Suas Anotações e Contexto",
+                        text = strings.uiJournalSection3,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1079,7 +1094,7 @@ private fun JournalArticleModal(
                 }
 
                 Text(
-                    text = "4. Leitura e Reflexão Sintetizada",
+                    text = strings.uiJournalSection4,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -1112,6 +1127,7 @@ private fun JournalArticleModal(
                 // Fase 3: thread de conversa (snapshot acima é imutável; aqui evolui)
                 ChatThread(
                     messages = threadMessages,
+                    strings = strings,
                     sendEnabled = !isSimulating,
                     isSimulating = isSimulating,
                     progressText = progressText,
@@ -1159,6 +1175,22 @@ private fun JournalArticleModal(
     }
 }
 
+/** Date format used by the Logbook, following the app language (not the device one). */
+private fun journalDatePattern(languageCode: String): String = when (languageCode) {
+    "en" -> "MMM d, yyyy · HH:mm"
+    "es" -> "d 'de' MMMM 'de' yyyy · HH:mm"
+    "fr" -> "d MMMM yyyy · HH:mm"
+    else -> "dd/MM/yyyy 'às' HH:mm"
+}
+
+/** Month names come from the app language, so the Logbook reads naturally. */
+private fun appLocaleFor(languageCode: String): Locale = when (languageCode) {
+    "pt" -> Locale("pt", "BR")
+    "es" -> Locale("es", "ES")
+    "fr" -> Locale.FRENCH
+    else -> Locale.ENGLISH
+}
+
 private data class SnapshotParticle(
     val name: String,
     val mass: Float,
@@ -1172,7 +1204,7 @@ private data class SnapshotParticle(
  * After a crash, reopen the app, export here and save the document anywhere.
  */
 @Composable
-private fun DevDiagnosticsCard(providerSummaries: List<String>) {
+private fun DevDiagnosticsCard(providerSummaries: List<String>, strings: StringsCatalog) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tick by remember { mutableStateOf(0) }
@@ -1192,12 +1224,12 @@ private fun DevDiagnosticsCard(providerSummaries: List<String>) {
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            status = "exportando..."
+            status = "${strings.uiExportLog}..."
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    writeDiagnosticsReport(context, uri, providerSummaries)
-                    "exportado ✅"
-                }.getOrElse { e -> "falha: ${e.message}" }
+                    writeDiagnosticsReport(context, uri, providerSummaries, strings)
+                    "${strings.uiExportDone} ✅"
+                }.getOrElse { e -> "${strings.uiExportFailed}: ${e.message}" }
             }
             status = result
             tick++
@@ -1208,20 +1240,21 @@ private fun DevDiagnosticsCard(providerSummaries: List<String>) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Default.BugReport,
-                contentDescription = "Diagnóstico e logs",
+                contentDescription = strings.uiDiagnosticsLogsTitle,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Diagnóstico e logs",
+                text = strings.uiDiagnosticsLogsTitle,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Watch constante: anel ${ringLines} linhas · sessão ${sessionKb} KB · ${crashes.size} crash(es). Após um crash, reabra e exporte.",
+            text = "${strings.uiDiagSubtitle} ${strings.uiDiagRing}: $ringLines · " +
+                "${strings.uiDiagSession}: $sessionKb KB · ${strings.uiDiagCrashes}: ${crashes.size}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1255,7 +1288,7 @@ private fun DevDiagnosticsCard(providerSummaries: List<String>) {
                     .testTag("export_log_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Exportar log")
+                Text(strings.uiExportLog)
             }
             OutlinedButton(
                 onClick = {
@@ -1268,14 +1301,14 @@ private fun DevDiagnosticsCard(providerSummaries: List<String>) {
                                     ?.forEach { it.delete() }
                             }
                         }
-                        status = "logs limpos"
+                        status = strings.uiLogsCleared
                         tick++
                     }
                 },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Limpar")
+                Text(strings.uiClearLogs)
             }
         }
     }
@@ -1291,51 +1324,52 @@ private fun devAppVersion(context: android.content.Context): String {
     }
 }
 
-private fun devSafeRead(f: java.io.File): String {
+private fun devSafeRead(f: java.io.File, strings: StringsCatalog): String {
     return try {
         f.readText()
     } catch (_: Exception) {
-        "(ilegível)"
+        strings.uiDiagUnreadable
     }
 }
 
-private fun devTailOf(f: java.io.File, maxLines: Int): String {
+private fun devTailOf(f: java.io.File, maxLines: Int, strings: StringsCatalog): String {
     return try {
-        if (!f.exists()) return "(sem sessão)"
+        if (!f.exists()) return strings.uiDiagNoSession
         f.readLines().takeLast(maxLines).joinToString("\n")
     } catch (_: Exception) {
-        "(ilegível)"
+        strings.uiDiagUnreadable
     }
 }
 
 private fun writeDiagnosticsReport(
     context: android.content.Context,
     uri: Uri,
-    providerSummaries: List<String>
+    providerSummaries: List<String>,
+    strings: StringsCatalog
 ) {
     val sb = StringBuilder()
     val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-    sb.appendLine("=== Noesis Lab — relatório de diagnóstico ===")
-    sb.appendLine("gerado em: $ts")
-    sb.appendLine("app: ${devAppVersion(context)}")
-    sb.appendLine("device: ${Build.BRAND} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
-    sb.appendLine("motor: Tier 1 BYOK + Tier 2 interno (on-device removido)")
-    sb.appendLine("provedores: " + if (providerSummaries.isEmpty()) "(nenhum)" else providerSummaries.joinToString(" | "))
+    sb.appendLine("=== ${strings.uiDiagReportHeader} — Noesis Lab ===")
+    sb.appendLine("${strings.uiDiagGeneratedAt}: $ts")
+    sb.appendLine("${strings.uiDiagApp}: ${devAppVersion(context)}")
+    sb.appendLine("${strings.uiDiagDevice}: ${Build.BRAND} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
+    sb.appendLine("${strings.uiDiagEngine}: ${strings.uiDiagEngineTiers}")
+    sb.appendLine("${strings.uiDiagProviders}: " + if (providerSummaries.isEmpty()) strings.uiDiagNone else providerSummaries.joinToString(" | "))
     sb.appendLine()
-    sb.appendLine("=== anel AppLog (${AppLog.snapshot().size} linhas) ===")
+    sb.appendLine("=== ${strings.uiDiagRing} (${AppLog.snapshot().size}) ===")
     AppLog.snapshot().forEach { sb.appendLine(it) }
     sb.appendLine()
     val dir = LogCollector.logsDir(context)
     val crashFiles = dir.listFiles { f -> f.name.startsWith("noesis-crash-") && f.name.endsWith(".txt") }
         ?.sortedByDescending { it.lastModified() } ?: emptyList()
-    sb.appendLine("=== crash reports (${crashFiles.size}) ===")
+    sb.appendLine("=== ${strings.uiDiagCrashes} (${crashFiles.size}) ===")
     crashFiles.forEach { f ->
-        sb.appendLine("--- ${f.name} ---")
-        sb.appendLine(devSafeRead(f))
+        sb.appendLine("--- ${strings.uiDiagCrashFile}: ${f.name} ---")
+        sb.appendLine(devSafeRead(f, strings))
     }
-    sb.appendLine("=== sessão (últimas 600 linhas) ===")
-    sb.appendLine(devTailOf(LogCollector.sessionLogFile(context), 600))
-    sb.appendLine("=== logcat fresco (processo + tags, até 2500) ===")
+    sb.appendLine("=== ${strings.uiDiagSession} ===")
+    sb.appendLine(devTailOf(LogCollector.sessionLogFile(context), 600, strings))
+    sb.appendLine("=== ${strings.uiDiagLogcat} ===")
     AppLog.dumpFilteredLogcat(2500).forEach { sb.appendLine(it) }
     context.contentResolver.openOutputStream(uri)?.use { out ->
         out.write(sb.toString().toByteArray())
@@ -1428,7 +1462,7 @@ private fun ProviderKeysCard(
                     IconButton(onClick = { onSaveCustom?.invoke(customName, customUrl) }) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Salvar",
+                            contentDescription = strings.uiSave,
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -1480,7 +1514,7 @@ private fun ProviderKeysCard(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "Remover chave",
+                                        contentDescription = strings.uiRemoveKey,
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -1492,7 +1526,7 @@ private fun ProviderKeysCard(
                             OutlinedTextField(
                                 value = accountText,
                                 onValueChange = { accountTexts = accountTexts + (slot.id to it) },
-                                label = { Text("Account ID (Cloudflare)") },
+                                label = { Text(strings.uiCloudflareAccountId) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -1550,12 +1584,12 @@ private fun ProviderKeysCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Adicionar chave",
+                    contentDescription = strings.uiAddKey,
                     tint = Color(0xFF2196F3),
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Adicionar chave", color = Color(0xFF2196F3))
+                Text(strings.uiAddKey, color = Color(0xFF2196F3))
             }
 
             if (verifiedModels.isNotEmpty()) {
@@ -1597,7 +1631,10 @@ private fun ProviderKeysCard(
 }
 
 @Composable
-private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Unit) {
+private fun CustomProviderCreator(
+    strings: StringsCatalog,
+    onEnsureCustomProvider: (String, String) -> Unit
+) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("https://") }
     Surface(
@@ -1610,7 +1647,7 @@ private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Un
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Nome do provedor") },
+                label = { Text(strings.uiProviderName) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1618,7 +1655,7 @@ private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Un
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("URL base (/v1)") },
+                label = { Text("${strings.uiProviderBaseUrl} (/v1)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1635,11 +1672,11 @@ private fun CustomProviderCreator(onEnsureCustomProvider: (String, String) -> Un
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Adicionar provedor",
+                    contentDescription = strings.uiAddProvider,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Adicionar provedor")
+                Text(strings.uiAddProvider)
             }
         }
     }

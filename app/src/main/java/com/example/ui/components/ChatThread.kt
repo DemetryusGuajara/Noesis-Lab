@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.ChatMessageEntity
+import com.example.i18n.StringsCatalog
 import com.example.ui.screens.FormattedMarkdownText
 
 /**
@@ -45,6 +46,7 @@ import com.example.ui.screens.FormattedMarkdownText
 @Composable
 fun ChatThread(
     messages: List<ChatMessageEntity>,
+    strings: StringsCatalog,
     sendEnabled: Boolean,
     isSimulating: Boolean,
     progressText: String,
@@ -132,7 +134,7 @@ fun ChatThread(
             OutlinedTextField(
                 value = replyLocal,
                 onValueChange = { replyLocal = it },
-                placeholder = { Text("Concorde, discorde, detalhe o que sente...") },
+                placeholder = { Text(strings.uiThreadReplyPlaceholder) },
                 minLines = 1,
                 maxLines = 4,
                 modifier = Modifier
@@ -158,7 +160,7 @@ fun ChatThread(
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
-                    contentDescription = "Enviar",
+                    contentDescription = strings.uiSend,
                     modifier = Modifier.size(18.dp)
                 )
             }

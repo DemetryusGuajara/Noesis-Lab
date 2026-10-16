@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.i18n.AppLanguage
+import com.example.i18n.AppLocalizer
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.formatConceptTitleCase
 import kotlinx.coroutines.Dispatchers
@@ -153,7 +154,7 @@ class NoesisRepository(
         val id = dao.insertProviderKey(
             AiProviderKeyEntity(
                 providerId = providerId,
-                label = "Chave ${existing.size + 1}",
+                label = "${AppLocalizer.active().uiKeyLabel} ${existing.size + 1}",
                 apiKey = "",
                 accountId = "",
                 isActive = existing.none { it.isActive },
@@ -214,7 +215,7 @@ class NoesisRepository(
                 dao.insertProviderKey(
                     AiProviderKeyEntity(
                         providerId = id,
-                        label = "Chave 1",
+                        label = "${AppLocalizer.active().uiKeyLabel} 1",
                         apiKey = "",
                         accountId = "",
                         isActive = true,
@@ -241,7 +242,7 @@ class NoesisRepository(
         )
         dao.insertProviderKey(
             AiProviderKeyEntity(
-                providerId = id, label = "Chave 1", apiKey = "",
+                providerId = id, label = "${AppLocalizer.active().uiKeyLabel} 1", apiKey = "",
                 accountId = "", isActive = true, sortOrder = 0
             )
         )
@@ -530,7 +531,7 @@ class NoesisRepository(
                     list.add(
                         JournalEntryEntity(
                             timestamp = o.optLong("timestamp", System.currentTimeMillis()),
-                            titleSummary = o.optString("titleSummary", "Registro"),
+                            titleSummary = o.optString("titleSummary", AppLocalizer.active().uiJournalEntryFallbackTitle),
                             particlesSnapshotJson = o.optString("particlesSnapshotJson", "[]"),
                             zonesSnapshotJson = o.optString("zonesSnapshotJson", "[]"),
                             userNotesPrompt = o.optString("userNotesPrompt", ""),
@@ -606,7 +607,7 @@ class NoesisRepository(
                     } else if (o.optString("apiKey", "").isNotBlank()) {
                         dao.insertProviderKey(
                             AiProviderKeyEntity(
-                                providerId = newId, label = "Chave 1",
+                                providerId = newId, label = "${AppLocalizer.active().uiKeyLabel} 1",
                                 apiKey = o.optString("apiKey", ""),
                                 accountId = "", isActive = true, sortOrder = 0
                             )
@@ -645,7 +646,7 @@ class NoesisRepository(
                 posX = 0.28f,
                 posY = 0.35f,
                 colorHex = 0xFFD97757,
-                philosophicalNote = "Aquilo que te atrai, inspira e coloca sua energia em movimento hoje."
+                philosophicalNote = AppLocalizer.active().archetypeNoteDesire
             ),
             ConceptParticleEntity(
                 name = "Medo",
@@ -657,7 +658,7 @@ class NoesisRepository(
                 posX = 0.72f,
                 posY = 0.33f,
                 colorHex = 0xFF7A6F9B,
-                philosophicalNote = "Um sinal de cautela ou proteção tentando evitar riscos antes de agir."
+                philosophicalNote = AppLocalizer.active().archetypeNoteFear
             ),
             ConceptParticleEntity(
                 name = "Tempo",
@@ -669,7 +670,7 @@ class NoesisRepository(
                 posX = 0.50f,
                 posY = 0.64f,
                 colorHex = 0xFFD4AF59,
-                philosophicalNote = "O ritmo entre as memórias do que passou e a expectativa do que vem pela frente."
+                philosophicalNote = AppLocalizer.active().archetypeNoteTime
             ),
             ConceptParticleEntity(
                 name = "Criatividade",
@@ -681,7 +682,7 @@ class NoesisRepository(
                 posX = 0.26f,
                 posY = 0.70f,
                 colorHex = 0xFF5A8F99,
-                philosophicalNote = "A capacidade de misturar referências, estética, cores e ideias novas."
+                philosophicalNote = AppLocalizer.active().archetypeNoteCreativity
             )
         )
 

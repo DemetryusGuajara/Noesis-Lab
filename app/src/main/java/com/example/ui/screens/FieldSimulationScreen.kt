@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -83,6 +82,10 @@ import com.example.ui.theme.ThemeMode
 import com.example.ui.components.MentalSpacesInfographic
 import com.example.ui.components.drawMentalSpaces
 import com.example.ui.components.rememberSpacesPalette
+import com.example.i18n.archetypeNote
+import com.example.i18n.zoneDescription
+import com.example.i18n.zoneDomain
+import com.example.i18n.zoneTitle
 import com.example.ui.theme.computeSynestheticSphereColor
 import com.example.ui.theme.formatConceptTitleCase
 import com.example.viewmodel.NoesisUiState
@@ -93,30 +96,39 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Ornamental side rail of the mix field: two parallel half-height lines with
- * a dot at each end (same stroke color/weight as the field border). Purely
- * decorative, but it signals that the side strip is draggable.
+ * Ornamental side rails of the mix field.
+ *
+ * Each side gets TWO parallel vertical lines, each one capped by a dot at both
+ * ends: 2 lines + 4 dots per side, 4 lines + 8 dots in total. Every line is
+ * 50% of the field height and vertically centered; each pair is horizontally
+ * centered inside the side strip the field card leaves free, so the draggable
+ * area reads as intentional instead of empty. Purely decorative: no gestures
+ * are attached, the strip belongs to the card's drag surface.
+ * Stroke weight matches the border of the add-spheres card (1.dp).
  */
 @Composable
-private fun FieldScrollRail(modifier: Modifier = Modifier) {
+private fun FieldScrollRails(modifier: Modifier = Modifier) {
     val stroke = MaterialTheme.colorScheme.outline
     Canvas(modifier = modifier) {
-        val lineWidth = 1.5.dp.toPx()
+        val lineWidth = 1.dp.toPx()
         val dotRadius = 2.5.dp.toPx()
-        val half = size.height / 2f
-        val top = (size.height - half) / 2f
-        val gap = 8.dp.toPx()
-        val xs = listOf(size.width / 2f - gap / 2f, size.width / 2f + gap / 2f)
-        xs.forEach { x ->
-            drawLine(
-                color = stroke,
-                start = Offset(x, top),
-                end = Offset(x, top + half),
-                strokeWidth = lineWidth,
-                cap = StrokeCap.Round
-            )
-            drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top))
-            drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top + half))
+        val gutter = 30.dp.toPx()        // side strip reserved by the field card
+        val pairGap = 10.dp.toPx()       // distance between the two parallel lines
+        val lineLength = size.height * 0.5f
+        val top = (size.height - lineLength) / 2f
+        val pairCenters = listOf(gutter / 2f, size.width - gutter / 2f)
+        pairCenters.forEach { centerX ->
+            listOf(centerX - pairGap / 2f, centerX + pairGap / 2f).forEach { x ->
+                drawLine(
+                    color = stroke,
+                    start = Offset(x, top),
+                    end = Offset(x, top + lineLength),
+                    strokeWidth = lineWidth,
+                    cap = StrokeCap.Round
+                )
+                drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top))
+                drawCircle(color = stroke, radius = dotRadius, center = Offset(x, top + lineLength))
+            }
         }
     }
 }
@@ -340,7 +352,7 @@ fun FieldSimulationScreen(
                     }
                     Icon(
                         imageVector = Icons.Default.Info,
-                        contentDescription = "Info",
+                        contentDescription = strings.uiInfo,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
@@ -396,6 +408,7 @@ fun FieldSimulationScreen(
                     onSelectZone = onSelectZone,
                     phase = wavePhaseState.value,
                     roomScale = 0.72f,
+                    strings = strings,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(230.dp)
@@ -403,17 +416,17 @@ fun FieldSimulationScreen(
                 uiState.diagnosedZones.firstOrNull { it.zone.zoneId == uiState.selectedZoneId }?.let { dz ->
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = dz.zone.customTitle,
+                        text = strings.zoneTitle(dz.zone.zoneId, dz.zone.customTitle),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = dz.zone.conceptDomain,
+                        text = strings.zoneDomain(dz.zone.zoneId, dz.zone.conceptDomain),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.secondary
                     )
                     Text(
-                        text = dz.zone.architecturalDescription,
+                        text = strings.zoneDescription(dz.zone.zoneId, dz.zone.architecturalDescription),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -423,9 +436,9 @@ fun FieldSimulationScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Square mix field (same corner radius) flanked by ornamental scroll rails.
-        // The rails live in a Box (not a Row) so fillMaxHeight resolves against
-        // the square card height; the card reserves the side strips.
+        // Square mix field (same corner radius) flanked by ornamental scroll
+        // rails. The rails are an overlay that matches the field size, and the
+        // card reserves the side strips they are centered in.
         val canvasBg = MaterialTheme.colorScheme.surface
         val gridLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         val labelColor = MaterialTheme.colorScheme.onSurface
@@ -702,8 +715,10 @@ fun FieldSimulationScreen(
             }
         }
 
-            FieldScrollRail(modifier = Modifier.align(Alignment.CenterStart).width(26.dp).fillMaxHeight())
-            FieldScrollRail(modifier = Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight())
+            // matchParentSize() is what makes the rails span the field height:
+            // this Box lives inside a vertical scroll, so the incoming height
+            // constraint is unbounded and fillMaxHeight() would resolve to 0.
+            FieldScrollRails(modifier = Modifier.matchParentSize())
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -830,7 +845,7 @@ fun FieldSimulationScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Delete",
+                                        contentDescription = strings.uiDelete,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -840,7 +855,7 @@ fun FieldSimulationScreen(
 
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = particle.philosophicalNote,
+                            text = strings.archetypeNote(particle.archetypeKey, particle.philosophicalNote),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -872,9 +887,9 @@ fun FieldSimulationScreen(
 
                         // 2. Sensation Slider (0.0 = Leve [Left] <-> 1.0 = Pesada [Right])
                         val feelingLabel = when {
-                            particle.charge < 0.35f -> "Leve / Suave (${(particle.charge * 100).toInt()}%)"
-                            particle.charge > 0.65f -> "Pesada / Densa (${(particle.charge * 100).toInt()}%)"
-                            else -> "Equilibrada (${(particle.charge * 100).toInt()}%)"
+                            particle.charge < 0.35f -> "${strings.uiSensationLight} (${(particle.charge * 100).toInt()}%)"
+                            particle.charge > 0.65f -> "${strings.uiSensationHeavy} (${(particle.charge * 100).toInt()}%)"
+                            else -> "${strings.uiSensationBalanced} (${(particle.charge * 100).toInt()}%)"
                         }
                         Text(
                             text = "${strings.particleDetailCharge}: $feelingLabel",
