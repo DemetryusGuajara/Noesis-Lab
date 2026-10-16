@@ -105,7 +105,8 @@ private fun FieldScrollRail(modifier: Modifier = Modifier) {
         val dotRadius = 2.5.dp.toPx()
         val half = size.height / 2f
         val top = (size.height - half) / 2f
-        val xs = listOf(size.width * 0.32f, size.width * 0.68f)
+        val gap = 8.dp.toPx()
+        val xs = listOf(size.width / 2f - gap / 2f, size.width / 2f + gap / 2f)
         xs.forEach { x ->
             drawLine(
                 color = stroke,
@@ -423,23 +424,23 @@ fun FieldSimulationScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         // Square mix field (same corner radius) flanked by ornamental scroll rails.
+        // The rails live in a Box (not a Row) so fillMaxHeight resolves against
+        // the square card height; the card reserves the side strips.
         val canvasBg = MaterialTheme.colorScheme.surface
         val gridLineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
         val labelColor = MaterialTheme.colorScheme.onSurface
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("particle_field_wrap"),
+            contentAlignment = Alignment.Center
         ) {
-            FieldScrollRail(modifier = Modifier.width(26.dp).fillMaxHeight())
-
-            Spacer(modifier = Modifier.width(8.dp))
-
             Card(
             modifier = Modifier
-                .weight(1f, fill = true)
+                .fillMaxWidth()
                 .aspectRatio(1f)
+                .padding(horizontal = 30.dp)
                 .testTag("particle_field_canvas"),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = canvasBg),
@@ -701,9 +702,8 @@ fun FieldSimulationScreen(
             }
         }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            FieldScrollRail(modifier = Modifier.width(26.dp).fillMaxHeight())
+            FieldScrollRail(modifier = Modifier.align(Alignment.CenterStart).width(26.dp).fillMaxHeight())
+            FieldScrollRail(modifier = Modifier.align(Alignment.CenterEnd).width(26.dp).fillMaxHeight())
         }
 
         Spacer(modifier = Modifier.height(8.dp))
