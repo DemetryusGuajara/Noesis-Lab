@@ -119,6 +119,35 @@ class Tier2LibraryTest {
     }
 
     @Test
+    fun themesGiveVocabularyWithoutReproducingText() {
+        val corpus = Tier2Library.build(
+            listOf(
+                Tier2Library.Source(
+                    "a.md",
+                    "# Medo\n\nO medo cresce na incerteza e na fragilidade do corpo, quando a " +
+                        "circunstancia parece maior que a resposta disponivel."
+                )
+            )
+        )
+
+        val themes = corpus.themes("medo")
+
+        assertTrue(themes.isNotEmpty())
+        assertTrue("viraram frases: $themes", themes.none { it.contains(" ") })
+        assertTrue("termo da consulta voltou: $themes", themes.none { it == "medo" })
+        assertTrue(themes.all { it.length >= 5 })
+    }
+
+    @Test
+    fun themesAreEmptyWhenNothingMatches() {
+        val corpus = Tier2Library.build(
+            listOf(Tier2Library.Source("a.md", "# A\n\nO vento atravessa a areia e a mare sobe lenta."))
+        )
+
+        assertTrue(corpus.themes("criptomoeda blockchain").isEmpty())
+    }
+
+    @Test
     fun emptyLibraryStaysEmpty() {
         val corpus = Tier2Library.build(emptyList())
 

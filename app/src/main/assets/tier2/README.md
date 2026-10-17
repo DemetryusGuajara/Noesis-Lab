@@ -16,12 +16,12 @@ escolhe as passagens certas por ranking, então quanto mais texto, melhor.
 | Nome do arquivo | Livre. Serve de título de reserva se você não usar front matter nem `# Título`. Evite acentos/espaços — o nome entra no índice como identificação. |
 | Ignorados | Arquivos que começam com `_` ou `readme` |
 | Tamanho | Sem limite prático. Um livro de ~400 páginas em texto puro ≈ 0,6–1 MB. |
-| Um arquivo por obra | Sim. Não junte autores diferentes no mesmo arquivo (a citação usa o arquivo como obra). |
+| Um arquivo por obra | Sim. Não junte autores diferentes no mesmo arquivo (o arquivo é a unidade de obra no índice e na regra de “2 passagens por obra”). |
 
 ## 2. Cabeçalho opcional (front matter)
 
-Só se você quiser citação com autor. Tem de estar nas **primeiras linhas** do arquivo,
-delimitado por `---`:
+Serve para organizar o índice internamente (autor nunca é exibido ao usuário).
+Tem de estar nas **primeiras linhas** do arquivo, delimitado por `---`:
 
 ```
 ---
@@ -38,8 +38,8 @@ front matter, o título vem do primeiro `# Título`; se também não houver, do 
 
 - `# Texto` na primeira linha de nível 1: vira o título (quando não há front matter).
 - **Todo** `## Capítulo`, `### Seção`, `#### Proposição` funciona como marcador de
-  seção: é o que aparece na citação (*trecho 3 da Parte III*) e ajuda o ranking,
-  porque acertos no cabeçalho valem mais.
+  seção: identifica o trecho no índice interno (*trecho 3 da Parte III*) e ajuda o
+  ranking, porque acertos no cabeçalho valem mais.
 - Os `#` são removidos do texto enviado ao motor. Linhas de sumário, notas de
   rodapé e colofão não atrapalham, mas não ajudam — pode deixá-los.
 
@@ -48,13 +48,15 @@ front matter, o título vem do primeiro `# Título`; se também não houver, do 
 - Um **parágrafo** = bloco separado por uma linha em branco.
 - Parágrafos se juntam em **trechos de ~900 caracteres** (máximo 1.400, mínimo 30).
 - Um trecho **nunca mistura seções diferentes** — então separe capítulos com `##`.
-- Cada trecho é citado com obra, seção e posição (`trecho 2/117`), então dividir bem
-  o texto melhora a citação.
+- Internamente cada trecho fica identificado com obra, seção e posição
+  (`trecho 2/117`) — dado que **nunca** aparece na leitura final (ver seção 6).
 
 ## 5. Idiomas aceitos
 
-- **Qualquer idioma** com escrita latina/alfabética. Acentos são dobrados
-  (`consciência` = `consciencia`), maiúsculas/minúsculas não importam.
+- **Qualquer idioma.** Acentos são dobrados (`consciência` = `consciencia`),
+  maiúsculas/minúsculas não importam. Vale para escrita alfabética; em ideogramas
+  (chinês, japonês) a segmentação por palavra não existe, então a busca fica
+  fraca — o material ainda é indexado, mas casa pouco.
 - O glossário de sinônimos cobre ponte **pt ⇄ en ⇄ es ⇄ fr** para conceitos comuns
   (medo/fear/miedo/peur, morte/death/muerte/mort, liberdade/freedom/libertad/liberté,
   consciência/consciousness/consciencia/conscience, vazio/emptiness/vacío/vide, e ~45
@@ -69,10 +71,21 @@ front matter, o título vem do primeiro `# Título`; se também não houver, do 
 1. Constrói o índice uma vez, na primeira leitura (custo único, roda em thread de I/O).
 2. A cada leitura, usa os conceitos ativos do mapa como consulta.
 3. Ranking BM25 sobre os trechos, com expansão por sinônimos e bônus para títulos/seções.
-4. Injeta até **4 passagens**, no máximo **2 por obra** (para um livro não dominar),
-   dentro de um orçamento de ~900 caracteres (460 e 520 em dois pontos específicos).
-5. O bloco entra no prompt sob **“Ressonância da Biblioteca Interna”** / *Resonance
-   from the Internal Library*, junto das fontes da Wikipedia e do Crossref.
+4. Seleciona até **4 passagens**, no máximo **2 por obra** (para um livro não dominar).
+
+### Regra de não-reprodução (obrigatória)
+
+**Nenhuma passagem, frase ou autor da biblioteca aparece na leitura final.**
+
+- **Com LLM (BYOK):** as passagens entram no prompt como *material silencioso*,
+  com instrução explícita de nunca transcrever, parafrasear em bloco, citar,
+  atribuir, nomear autores/obras ou mencionar que houve consulta. O modelo
+  aproveita só o sentido, reescrito na própria voz.
+- **Motor interno (sem LLM):** a biblioteca contribui apenas com **vocabulário** —
+  até 6 palavras isoladas por leitura, exibidas em *“Fios Conceituais deste Momento”*.
+  Nenhuma passagem de texto é mostrada, copiada ou creditada. É por isso que a
+  seção de citação no prompt (obra, seção, trecho) é **interna**: serve só para o
+  modelo saber que aquilo tem fonte — nunca sai para o usuário.
 
 Se nada casar, **nada é injetado** — melhor vazio do que ruído. Também não há
 anexo obrigatório: sem arquivos aqui, o motor usa apenas Wikipedia/Crossref.
@@ -80,6 +93,10 @@ anexo obrigatório: sem arquivos aqui, o motor usa apenas Wikipedia/Crossref.
 ## 7. Antes de enviar
 
 - Salve como UTF-8 sem BOM.
-- Um arquivo por obra, com front matter (`title`, `author`) quando souber o autor.
+- Um arquivo por obra, com front matter (`title`, `author`) quando souber o autor
+  (usado só para organizar o índice, nunca exibido).
 - Marque capítulos/proposições com `##`/`###`.
 - Pode mandar a obra inteira; nenhum corte é necessário.
+- Copyright: podem ser obras protegidas. O conteúdo nunca é reproduzido, citado
+  nem creditado na leitura entregue ao usuário — entra só como matéria-prima
+  silenciosa (LLM) ou como vocabulário isolado (motor interno).

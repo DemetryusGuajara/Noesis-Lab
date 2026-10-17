@@ -41,7 +41,9 @@ object Tier2Library {
     private data class ParsedChunk(
         val chunk: Chunk,
         val terms: List<String>,
-        val headingTerms: Set<String>
+        val headingTerms: Set<String>,
+        /** folded term -> first spelling seen in the work (keeps accents). */
+        val displayForms: Map<String, String>
     )
 
     /**
@@ -55,7 +57,8 @@ object Tier2Library {
         private val headingTerms: List<Set<String>>,
         private val postings: Map<String, IntArray>,
         private val idf: Map<String, Double>,
-        private val averageLength: Double
+        private val averageLength: Double,
+        private val displayForms: Map<String, String>
     ) {
         val chunkCount: Int get() = chunks.size
         val isEmpty: Boolean get() = chunks.isEmpty()
@@ -65,8 +68,48 @@ object Tier2Library {
          * [perDocLimit] from the same work. Returns an empty list when nothing
          * matches — injecting unrelated text is worse than injecting nothing.
          */
-        fun search(query: String, limit: Int = 4, perDocLimit: Int = 2): List<Chunk> {
-            if (chunks.isEmpty() || limit <= 0) return emptyList()
+        fun search(query: String, limit: Int = 4, perDocLimit: Int = 2): List<Chunk> =
+            select(rank(query), limit, perDocLimit)
+
+        /**
+         * Vocabulary the library associates with [query], without any sentence
+         * or attribution: isolated words that the works use to think this theme.
+         * Meant for the internal engine, whose output must never reproduce text.
+         */
+        fun themes(
+            query: String,
+            limit: Int = 4,
+            perDocLimit: Int = 2,
+            maxTerms: Int = 6
+        ): List<String> {
+            val order = rank(query)
+            if (order.isEmpty()) return emptyList()
+            val picked = select(order, limit, perDocLimit)
+            if (picked.isEmpty()) return emptyList()
+            val hitIndices = picked.map { chunks.indexOf(it) }.filter { it >= 0 }.toHashSet()
+            if (hitIndices.isEmpty()) return emptyList()
+
+            val queryTerms = expandQuery(tokenize(query)).keys
+            val weights = mutableMapOf<String, Double>()
+            for ((term, posting) in postings) {
+                if (term.length < 5 || term in queryTerms) continue
+                var frequency = 0
+                var i = 0
+                while (i < posting.size) {
+                    if (posting[i] in hitIndices) frequency += posting[i + 1]
+                    i += 2
+                }
+                if (frequency > 0) weights[term] = frequency * (idf[term] ?: 0.0)
+            }
+            return weights.entries
+                .sortedByDescending { it.value }
+                .take(maxTerms)
+                .map { displayForms[it.key] ?: it.key }
+        }
+
+        /** Chunk indices ordered by relevance; empty when nothing matches. */
+        private fun rank(query: String): List<Int> {
+            if (chunks.isEmpty()) return emptyList()
             val weightedTerms = expandQuery(tokenize(query))
             if (weightedTerms.isEmpty()) return emptyList()
 
@@ -96,8 +139,12 @@ object Tier2Library {
                 }
             }
 
-            val order = chunks.indices.filter { scores[it] > 0.0 }
+            return chunks.indices.filter { scores[it] > 0.0 }
                 .sortedByDescending { scores[it] }
+        }
+
+        private fun select(order: List<Int>, limit: Int, perDocLimit: Int): List<Chunk> {
+            if (limit <= 0) return emptyList()
             val perDoc = mutableMapOf<Int, Int>()
             val picked = mutableListOf<Chunk>()
             // First pass: one passage per work, so a single book cannot drown
@@ -159,7 +206,7 @@ object Tier2Library {
         }
         if (parsed.isEmpty()) {
             return Corpus(
-                emptyList(), IntArray(0), emptyList(), emptyMap(), emptyMap(), 1.0
+                emptyList(), IntArray(0), emptyList(), emptyMap(), emptyMap(), 1.0, emptyMap()
             )
         }
 
@@ -184,13 +231,20 @@ object Tier2Library {
         }
         val postings = postingLists.mapValues { (_, list) -> list.toIntArray() }
         val averageLength = lengths.sum().toDouble() / parsed.size
+        val displayForms = mutableMapOf<String, String>()
+        for (document in parsed) {
+            for ((folded, raw) in document.displayForms) {
+                displayForms.putIfAbsent(folded, raw)
+            }
+        }
         return Corpus(
             chunks = parsed.map { it.chunk },
             lengths = lengths,
             headingTerms = parsed.map { it.headingTerms },
             postings = postings,
             idf = idf,
-            averageLength = averageLength.coerceAtLeast(1.0)
+            averageLength = averageLength.coerceAtLeast(1.0),
+            displayForms = displayForms
         )
     }
 
@@ -270,10 +324,12 @@ object Tier2Library {
                 total = chunks.size,
                 text = text
             )
+            val pairs = tokenPairs(text)
             ParsedChunk(
                 chunk = chunk,
-                terms = tokenize(text),
-                headingTerms = tokenize("$resolvedTitle ${section ?: ""}").toSet()
+                terms = pairs.map { it.first },
+                headingTerms = tokenize("$resolvedTitle ${section ?: ""}").toSet(),
+                displayForms = pairs.associate { it.first to it.second }
             )
         }
     }
@@ -304,10 +360,16 @@ object Tier2Library {
 
     // --------------------------------------------------------------- tokens
 
-    fun tokenize(text: String): List<String> =
+    fun tokenize(text: String): List<String> = tokenPairs(text).map { it.first }
+
+    /** Folded token with the spelling it had in the text (accents preserved). */
+    private fun tokenPairs(text: String): List<Pair<String, String>> =
         WORD.findAll(text.lowercase(Locale.ROOT))
-            .map { fold(it.value) }
-            .filter { it.length >= 3 && it !in STOP_WORDS }
+            .map { it.value }
+            .mapNotNull { raw ->
+                val folded = fold(raw)
+                if (folded.length >= 3 && folded !in STOP_WORDS) folded to raw else null
+            }
             .toList()
 
     /** Lowercase + accent folding, so "medo"/"medó" and "être"/"etre" meet. */

@@ -654,6 +654,8 @@ class GroundingAndAiService(private val context: Context) {
         - O cérebro antecipa cenários; distância entre esferas = fronteira de proteção, proximidade = aliança.
         - POSIÇÃO VALE TANTO QUANTO PESO: cada esfera está DENTRO de um espaço da mente, AO LADO de um, ENTRE dois estados (mais próxima de um deles) ou no campo aberto. Ler onde a esfera mora é obrigatório: uma coragem posta no espaço do desejo não significa o mesmo que uma coragem entre o medo e a identidade. Sempre conecte nome + peso + espaço onde está ancorada.
 
+        CONFIDENCIALIDADE DAS FONTES (obrigatória): todo o material de base (biblioteca interna, verbetes, estudos) é matéria-prima silenciosa. É PROIBIDO transcrever, copiar ou parafrasear em bloco qualquer trecho; PROIBIDO citar, atribuir, nomear obras, autores ou estudos; PROIBIDO mencionar que houve consulta, "biblioteca", "fontes" ou "pesquisa". Nenhuma frase da resposta pode ser reconhecível como vinda de outra obra: aproveite só o sentido, reescrito inteiramente na sua própria voz.
+
         SLIDERS (module tom e conteúdo): Ritmo Interno=${(arousal * 100).toInt()}%: alto → frases curtas e práticas de descarga; baixo → cadência lenta e sustentação. Abertura Afetiva=${(valence * 100).toInt()}%: alta → ouse e convide; baixa → acolha em passos pequenos. Foco=${(focus * 100).toInt()}%: alto → aprofunde um fio; baixo → panorama leve. Esferas pesadas pedem respeito ao ritmo; leves pedem leveza.
         CADA LEITURA DEVE SER INÉDITA: varie título, metáfora central e ritmo das frases; nunca repita fórmulas de leituras anteriores.
         DIRETRIZ CRIATIVA DESTA LEITURA (obrigatória — define a voz deste texto; nunca a mencione explicitamente):
@@ -661,7 +663,7 @@ class GroundingAndAiService(private val context: Context) {
 
         DADOS — Esferas: $particlesSummary
         Topologia: $topologyDescription
-        Base conceitual (pode conter vários idiomas — inglês, francês, alemão etc.: leia tudo, mas responda sempre no idioma do app):
+        Base conceitual SILENCIOSA — pode conter vários idiomas (inglês, francês, alemão etc.): leia tudo para entender o tema, mas responda sempre no idioma do app e nunca reproduza nem mencione estas fontes:
         $cleanKnowledgeSummary
 
         ESTRUTURA (Markdown): título `#` poético e inédito; `### 1.` geometria do momento citando nominalmente os pares E onde cada esfera está ancorada (dentro de qual espaço, ao lado de qual, entre quais estados e para qual lado pende); `### 2.` insight que desmonte o falso dilema do relato, levando em conta o espaço em que as forças habitam; `### 3.` um tópico por esfera (cor, peso, espaço onde mora, sentido), variando a frase a cada esfera; `---SOMATIC---` + exercício corporal INÉDITO de 3 passos (uma técnica validada + uma metáfora das esferas; proibido repetir sempre o mesmo trio).
@@ -721,7 +723,7 @@ class GroundingAndAiService(private val context: Context) {
         val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
         val cleanKnowledgeSummary = buildString {
             if (tier2Knowledge.isNotBlank()) {
-                appendLine("BIBLIOTECA INTERNA (Tier 2):")
+                appendLine("MATERIAL SILENCIOSO — NUNCA CITAR, NUNCA TRANSCREVER, NUNCA ATRIBUIR:")
                 appendLine(tier2Knowledge)
                 appendLine()
             }
@@ -890,7 +892,7 @@ class GroundingAndAiService(private val context: Context) {
         val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
         val cleanKnowledgeSummary = buildString {
             if (tier2Knowledge.isNotBlank()) {
-                appendLine("BIBLIOTECA INTERNA (Tier 2):")
+                appendLine("MATERIAL SILENCIOSO — NUNCA CITAR, NUNCA TRANSCREVER, NUNCA ATRIBUIR:")
                 appendLine(tier2Knowledge)
                 appendLine()
             }
@@ -1144,6 +1146,21 @@ class GroundingAndAiService(private val context: Context) {
         )
     }
 
+    /**
+     * Vocabulary the internal library associates with the active concepts —
+     * isolated words only. The internal engine never shows a passage, sentence
+     * or author: the books shape the reading without ever being reproduced.
+     */
+    private fun tier2ThemesFor(concepts: List<String>, maxTerms: Int = 6): List<String> {
+        if (tier2Corpus.isEmpty) return emptyList()
+        return tier2Corpus.themes(
+            query = concepts.joinToString(" "),
+            limit = 4,
+            perDocLimit = 2,
+            maxTerms = maxTerms
+        )
+    }
+
     /** Localized paragraph reading where each sphere lives among the spaces. */
     private fun buildZoneParagraph(topology: SpatialTopologyAnalysis, lang: String): String {
         val rels = topology.sphereZoneRelations
@@ -1233,7 +1250,6 @@ class GroundingAndAiService(private val context: Context) {
         val secondaryConcept = conceptsList.firstOrNull { it != primaryConcept } ?: "Tempo"
         val userContext = userPrompt.trim()
 
-        val cleanDefinitionsMap = grounding.wikiSources.associate { it.conceptTerm.lowercase() to it.cleanExtract }
         val affinityPair = topology.closestAffinityPair
         val polarityPair = topology.furthestPolarityPair
 
@@ -1335,24 +1351,34 @@ class GroundingAndAiService(private val context: Context) {
                     SphereSpatialDescriptor(it, 1.3f, 0.45f, 0f, 0f)
                 }
                 spheresToRead.forEach { sp ->
-                    val def = cleanDefinitionsMap[sp.name.lowercase()]
                     val relation = topology.sphereZoneRelations.find { it.sphereName == sp.name }
-                    val insight = distillDeepSphereInsight(sp, def, languageCode, relation)
+                    val insight = distillDeepSphereInsight(sp, languageCode, relation)
                     appendLine("- **${sp.name}:** $insight")
                 }
-                val internalExcerpt = tier2ExcerptsFor(conceptNames, 460)
-                if (internalExcerpt.isNotBlank()) {
+                // A biblioteca interna entra como vocabulário, nunca como texto:
+                // nenhuma passagem é reproduzida na leitura entregue ao usuário.
+                val conceptualThreads = tier2ThemesFor(conceptNames)
+                if (conceptualThreads.isNotEmpty()) {
+                    val threadList = conceptualThreads.joinToString("**, **")
                     appendLine()
                     appendLine(
                         L(
                             lang,
-                            "### Ressonância da Biblioteca Interna",
-                            "### Resonance from the Internal Library",
-                            "### Resonancia de la Biblioteca Interna",
-                            "### Résonance de la Bibliothèque Interne"
+                            "### 4. Fios Conceituais deste Momento",
+                            "### 4. Conceptual Threads of This Moment",
+                            "### 4. Hilos Conceptuales de Este Momento",
+                            "### 4. Fils Conceptuels de Ce Moment"
                         )
                     )
-                    appendLine(internalExcerpt)
+                    appendLine(
+                        L(
+                            lang,
+                            "Palavras que atravessam o seu campo hoje: **$threadList**. Não são definições a decorar, nem citações: são os fios que este momento pede para pensar.",
+                            "Words crossing your field today: **$threadList**. They are not definitions to memorise, nor quotations: they are the threads this moment asks you to think.",
+                            "Palabras que atraviesan tu campo hoy: **$threadList**. No son definiciones para memorizar ni citas: son los hilos que este momento te pide pensar.",
+                            "Mots qui traversent votre champ aujourd'hui : **$threadList**. Ce ne sont ni des définitions à mémoriser ni des citations : ce sont les fils que ce moment vous demande de penser."
+                        )
+                    )
                 }
             }.trim()
         }
@@ -1435,25 +1461,26 @@ class GroundingAndAiService(private val context: Context) {
             }
 
             spheresToRead.forEach { sp ->
-                val rawDef = cleanDefinitionsMap[sp.name.lowercase()]
                 val relation = topology.sphereZoneRelations.find { it.sphereName == sp.name }
-                val sphereInsight = distillDeepSphereInsight(sp, rawDef, "pt", relation)
+                val sphereInsight = distillDeepSphereInsight(sp, "pt", relation)
                 appendLine("- **${sp.name}:** $sphereInsight")
             }
 
-            // Section 4: Academic / Conceptual Cross-Pollination Note (if academic sources found)
+            // Section 4: synthesis shaped by the academic grounding, without
+            // naming studies, authors or quoting anything.
             if (grounding.academicSources.isNotEmpty()) {
-                val acadTitle = grounding.academicSources.first().title
                 appendLine()
                 appendLine("### 4. Ressonância Conceitual & Síntese")
-                appendLine("Com seu ritmo interno em **${(arousal * 100).toInt()}%**, abertura emocional em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, a literatura contemporânea (em diálogo com estudos como *\"$acadTitle\"*) aponta que a percepção muda no instante em que deixamos de ser reféns de um estado e passamos a ser seus observadores criativos. O simples gesto de mapear essas esferas já reorganiza a forma como o seu sistema nervoso processa este momento.")
+                appendLine("Com seu ritmo interno em **${(arousal * 100).toInt()}%**, abertura emocional em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, a percepção muda no instante em que deixamos de ser reféns de um estado e passamos a ser seus observadores criativos. O simples gesto de mapear essas esferas já reorganiza a forma como o seu sistema nervoso processa este momento.")
             }
 
-            val internalExcerptPt = tier2ExcerptsFor(conceptNames, 520)
-            if (internalExcerptPt.isNotBlank()) {
+            // Section 5: the internal library contributes vocabulary only — no
+            // passage, sentence or authorship ever reaches the reading.
+            val conceptualThreads = tier2ThemesFor(conceptNames)
+            if (conceptualThreads.isNotEmpty()) {
                 appendLine()
-                appendLine("### Ressonância da Biblioteca Interna")
-                appendLine(internalExcerptPt)
+                appendLine("### 5. Fios Conceituais deste Momento")
+                appendLine("Palavras que atravessam o seu campo hoje: **${conceptualThreads.joinToString("**, **")}**. Não são definições a decorar, nem citações: são os fios que este momento pede para pensar.")
             }
 
             appendLine()
@@ -1463,7 +1490,6 @@ class GroundingAndAiService(private val context: Context) {
 
     private fun distillDeepSphereInsight(
         sphere: SphereSpatialDescriptor,
-        cleanExtract: String?,
         lang: String,
         zoneRelation: SphereZoneRelation? = null
     ): String {
@@ -1516,25 +1542,16 @@ class GroundingAndAiService(private val context: Context) {
         } ?: ""
 
         if (lang != "pt") {
-            val snippet = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..200 }?.trim()
+            // Sem reprodução de verbete em nenhum idioma: a esfera é lida por
+            // peso, geometria e espaço onde mora.
             val weightPct = (sphere.weightHeaviness * 100).toInt()
-            return if (!snippet.isNullOrBlank()) {
-                L(
-                    lang,
-                    "$snippet. Na sua constelação de hoje (peso $weightPct%), ela dá o tom do seu espaço interno.$placeSuffix",
-                    "$snippet. In your constellation today (Weight $weightPct%), it shapes the tone of your inner space.$placeSuffix",
-                    "$snippet. En tu constelación de hoy (peso $weightPct%), define el tono de tu espacio interior.$placeSuffix",
-                    "$snippet. Dans votre constellation d'aujourd'hui (poids $weightPct%), elle donne le ton de votre espace intérieur.$placeSuffix"
-                )
-            } else {
-                L(
-                    lang,
-                    "Funciona como uma lente vital na sua constelação mental (peso $weightPct%), equilibrando impulso e reflexão.$placeSuffix",
-                    "Acts as a vital lens in your mental constellation (Weight $weightPct%), balancing impulse and reflection.$placeSuffix",
-                    "Actúa como una lente vital en tu constelación mental (peso $weightPct%), equilibrando impulso y reflexión.$placeSuffix",
-                    "Elle agit comme une lentille vitale dans votre constellation mentale (poids $weightPct%), équilibrant l'élan et la réflexion.$placeSuffix"
-                )
-            }
+            return L(
+                lang,
+                "Funciona como uma lente vital na sua constelação mental (peso $weightPct%), equilibrando impulso e reflexão.$placeSuffix",
+                "Acts as a vital lens in your mental constellation (Weight $weightPct%), balancing impulse and reflection.$placeSuffix",
+                "Actúa como una lente vital en tu constelación mental (peso $weightPct%), equilibrando impulso y reflexión.$placeSuffix",
+                "Elle agit comme une lentille vitale dans votre constellation mentale (poids $weightPct%), équilibrant l'élan et la réflexion.$placeSuffix"
+            )
         }
 
         val coreMeaning = when {
@@ -1584,29 +1601,16 @@ class GroundingAndAiService(private val context: Context) {
             lower.contains("foco") || lower.contains("clareza") ->
                 "A atenção seletiva que recolhe a energia dispersa e a conduz para um único ponto de presença lúcida."
             else -> {
-                val cleanSentences = cleanExtract
-                    ?.split(Regex("(?<=[.!?])\\s+"))
-                    ?.filter { it.trim().length in 40..220 }
-                    ?.take(2)
-                    ?.joinToString(" ")
-                    ?.trim()
-
-                if (!cleanSentences.isNullOrBlank()) {
-                    val closer = if (v == 0) " Na sua constelação subjetiva, este conceito funciona como uma metáfora viva que organiza suas percepções de hoje."
-                    else " Traga essa definição para perto do corpo: onde ela vibra mais forte é onde mora o trabalho de hoje."
-                    "$cleanSentences$closer"
-                } else {
-                    // Espelho em branco: sem verbete e sem balde pronto, o sentido
-                    // nasce da posição, do peso e das vizinhanças — não do dicionário.
-                    // Vale para QUALQUER termo: "Jangada", "Capivara", "Amnésia".
-                    val dist = hypot(sphere.posX - 0.5f, sphere.posY - 0.5f)
-                    val place = if (dist < 0.22f) "no centro do seu mapa — o assunto ao redor do qual todo o resto orbita hoje"
-                    else "nas bordas do seu mapa — presente, mas mantida a uma distância que também diz algo"
-                    val density = if (sphere.weightHeaviness >= 0.55f) "com peso denso, pedindo respeito ao ritmo"
-                    else "com leveza, pedindo espaço para respirar"
-                    if (v == 0) "**${sphere.name}** não tem verbete pronto — e isso é potência, não falta. Posicionada $place, $density, ela funciona como um *espelho em branco*: o sentido dela será decidido pelo que você fizer com ela, não pelo dicionário."
-                    else "Nenhuma definição externa dá conta de **${sphere.name}** hoje — e tudo bem: símbolos vivos escapam de verbetes. Leia-a pela geometria: está $place, $density. Pergunte-se o que essa posição protege ou anuncia."
-                }
+                // Espelho em branco: nenhum texto de terceiros é reproduzido — o
+                // sentido nasce da posição, do peso e das vizinhanças.
+                // Vale para QUALQUER termo: "Jangada", "Capivara", "Amnésia".
+                val dist = hypot(sphere.posX - 0.5f, sphere.posY - 0.5f)
+                val place = if (dist < 0.22f) "no centro do seu mapa — o assunto ao redor do qual todo o resto orbita hoje"
+                else "nas bordas do seu mapa — presente, mas mantida a uma distância que também diz algo"
+                val density = if (sphere.weightHeaviness >= 0.55f) "com peso denso, pedindo respeito ao ritmo"
+                else "com leveza, pedindo espaço para respirar"
+                if (v == 0) "**${sphere.name}** não tem verbete pronto — e isso é potência, não falta. Posicionada $place, $density, ela funciona como um *espelho em branco*: o sentido dela será decidido pelo que você fizer com ela, não pelo dicionário."
+                else "Nenhuma definição externa dá conta de **${sphere.name}** hoje — e tudo bem: símbolos vivos escapam de verbetes. Leia-a pela geometria: está $place, $density. Pergunte-se o que essa posição protege ou anuncia."
             }
         }
 
