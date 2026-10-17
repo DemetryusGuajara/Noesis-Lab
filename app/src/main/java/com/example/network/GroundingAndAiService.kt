@@ -1107,64 +1107,41 @@ class GroundingAndAiService(private val context: Context) {
 
     // ---------- Tier 2 internal library (assets/tier2) ----------
     // Drop .md/.txt files (UTF-8) into app/src/main/assets/tier2 to feed the
-    // built-in engine with your own excerpts (Espinosa, Nietzsche, etc.).
-    private data class Tier2Doc(val title: String, val body: String)
+    // built-in engine. Parsing, chunking and BM25 ranking live in
+    // Tier2Library so they can be unit-tested without a device.
+    private val tier2Corpus: Tier2Library.Corpus by lazy {
+        Tier2Library.build(loadTier2Sources())
+    }
 
-    private val tier2Corpus: List<Tier2Doc> by lazy { loadTier2Corpus() }
-
-    private fun loadTier2Corpus(): List<Tier2Doc> = runCatching {
+    private fun loadTier2Sources(): List<Tier2Library.Source> = runCatching {
         val names = context.assets.list("tier2")?.toList() ?: emptyList()
         names.filter {
             (it.endsWith(".md", true) || it.endsWith(".txt", true)) &&
                 !it.startsWith("readme", true) &&
                 !it.startsWith("_")
         }
+            .sorted()
             .mapNotNull { name ->
                 runCatching {
                     val text = context.assets.open("tier2/$name").bufferedReader().use { it.readText() }
-                    val titleLine = text.lineSequence().firstOrNull { it.trimStart().startsWith("#") }
-                        ?.trimStart('#', ' ')
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
-                        ?: name.substringBeforeLast('.')
-                    val body = text.replace(Regex("^#{1,6} .*$", RegexOption.MULTILINE), "")
-                        .replace(Regex("\\s+"), " ")
-                        .trim()
-                    if (body.length >= 80) Tier2Doc(titleLine, body) else null
+                    Tier2Library.Source(name, text)
                 }.getOrNull()
             }
     }.getOrElse { emptyList() }
 
     /**
-     * Picks the internal-library excerpts most relevant to the active concepts.
-     * Relevance = token overlap between the concepts and each document. Falls
-     * back to the first documents when nothing matches (still useful as style).
+     * Picks the internal-library passages most relevant to the active concepts.
+     * Ranking uses BM25 over paragraph-sized chunks with pt/en/es/fr synonyms;
+     * each passage is rendered with work, section and position for citation.
      */
     private fun tier2ExcerptsFor(concepts: List<String>, maxChars: Int = 900): String {
-        if (tier2Corpus.isEmpty()) return ""
-        val tokens = concepts
-            .flatMap { it.lowercase().split(Regex("[^\\p{L}\\p{N}]+")) }
-            .filter { it.length >= 4 }
-            .distinct()
-        val ranked = tier2Corpus.map { doc ->
-            val haystack = "${doc.title} ${doc.body}".lowercase()
-            val score = tokens.count { haystack.contains(it) }
-            doc to score
-        }.sortedByDescending { it.second }
-
-        val picked = ranked.filter { it.second > 0 }.map { it.first }.ifEmpty { ranked.map { it.first } }
-            .take(2)
-        if (picked.isEmpty()) return ""
-        var budget = maxChars
-        val sb = StringBuilder()
-        for (doc in picked) {
-            if (budget <= 120) break
-            val chunk = doc.body.take(budget.coerceAtMost(480))
-            sb.append("- ${doc.title}: $chunk")
-            if (doc !== picked.last()) sb.append('\n')
-            budget -= chunk.length
-        }
-        return sb.toString()
+        if (tier2Corpus.isEmpty) return ""
+        return tier2Corpus.render(
+            query = concepts.joinToString(" "),
+            maxChars = maxChars,
+            limit = 4,
+            perDocLimit = 2
+        )
     }
 
     /** Localized paragraph reading where each sphere lives among the spaces. */

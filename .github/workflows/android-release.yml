@@ -69,6 +69,9 @@ jobs:
             echo "No fixed signing key configured; using debug.keystore fallback."
           fi
 
+      - name: Run unit tests (Tier 2 library ranking)
+        run: gradle testDebugUnitTest --tests "com.example.network.Tier2LibraryTest" --no-daemon
+
       - name: Build Debug APK + Release AAB
         run: gradle assembleDebug bundleRelease --no-daemon
 
