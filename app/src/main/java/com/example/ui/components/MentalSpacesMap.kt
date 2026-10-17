@@ -55,6 +55,8 @@ data class SpacesPalette(
  *        infographic can be smaller without being squashed.
  * @param strings when provided, room labels follow the app language instead
  *        of the title stored in the database.
+ * @param showConnections draws the dashed corridors between connected rooms
+ *        (the detailed diagnostic view of Tab 2); hidden in compact replicas.
  */
 fun DrawScope.drawMentalSpaces(
     zones: List<DiagnosedZoneState>,
@@ -66,7 +68,8 @@ fun DrawScope.drawMentalSpaces(
     alpha: Float,
     phase: Float,
     scale: Float = 1f,
-    strings: StringsCatalog? = null
+    strings: StringsCatalog? = null,
+    showConnections: Boolean = false
 ) {
     val w = size.width
     val h = size.height
@@ -92,6 +95,25 @@ fun DrawScope.drawMentalSpaces(
                 strokeWidth = 1f
             )
             gy += step
+        }
+    }
+
+    if (showConnections) {
+        val zoneMap = zones.associateBy { it.zone.zoneId }
+        for (dz in zones) {
+            val start = Offset(dz.zone.mapX * w, dz.zone.mapY * h)
+            val targets = dz.zone.connectedZonesCsv.split(",").map { it.trim() }
+            for (targetId in targets) {
+                if (targetId.isBlank()) continue
+                val target = zoneMap[targetId]?.zone ?: continue
+                drawLine(
+                    color = palette.primary.copy(alpha = 0.35f * alpha),
+                    start = start,
+                    end = Offset(target.mapX * w, target.mapY * h),
+                    strokeWidth = 1.6.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), phase * 8f)
+                )
+            }
         }
     }
 

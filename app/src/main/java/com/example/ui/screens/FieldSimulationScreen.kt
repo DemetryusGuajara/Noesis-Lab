@@ -452,8 +452,8 @@ fun FieldSimulationScreen(
             Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
                 .padding(horizontal = 30.dp)
+                .aspectRatio(1f)
                 .testTag("particle_field_canvas"),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = canvasBg),

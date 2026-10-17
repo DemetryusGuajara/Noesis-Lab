@@ -26,6 +26,7 @@ import com.example.network.GroundingAndAiService
 import com.example.network.GroundingBundle
 import com.example.network.ProviderVerificationReport
 import com.example.network.SphereSpatialDescriptor
+import com.example.network.ZoneSpatialDescriptor
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.formatConceptTitleCase
 import com.example.util.AppLog
@@ -607,6 +608,16 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                         posY = it.posY
                     )
                 }
+                // Mental spaces as anchors: the reading must know whether each
+                // sphere sits inside, beside or between these states.
+                val zoneDescriptors = state.diagnosedZones.map { dz ->
+                    ZoneSpatialDescriptor(
+                        zoneId = dz.zone.zoneId,
+                        title = state.strings.zoneTitle(dz.zone.zoneId, dz.zone.customTitle),
+                        mapX = dz.zone.mapX,
+                        mapY = dz.zone.mapY
+                    )
+                }
 
                 val engine = repository.resolveActiveEngine()
                 val activeProvider = engine?.first
@@ -618,6 +629,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     particlesSummary = particlesSummary,
                     conceptNames = conceptNames,
                     spatialSpheres = spatialSpheres,
+                    zones = zoneDescriptors,
                     arousal = state.preferences.bioArousal,
                     valence = state.preferences.bioValence,
                     focus = state.preferences.bioFocus,
@@ -808,6 +820,14 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                         posY = it.posY
                     )
                 }
+                val zoneDescriptors = state.diagnosedZones.map { dz ->
+                    ZoneSpatialDescriptor(
+                        zoneId = dz.zone.zoneId,
+                        title = state.strings.zoneTitle(dz.zone.zoneId, dz.zone.customTitle),
+                        mapX = dz.zone.mapX,
+                        mapY = dz.zone.mapY
+                    )
+                }
                 val engine = repository.resolveActiveEngine()
                 val effectiveLang = AppLanguage.resolveEffectiveLanguage(state.preferences.language)
                 val result = networkService.orchestrateFollowUp(
@@ -816,6 +836,7 @@ class NoesisViewModel(application: Application) : AndroidViewModel(application) 
                     particlesSummary = particlesSummary.ifBlank { conceptNames.joinToString(", ") },
                     conceptNames = conceptNames,
                     spatialSpheres = spatialSpheres,
+                    zones = zoneDescriptors,
                     arousal = state.preferences.bioArousal,
                     valence = state.preferences.bioValence,
                     focus = state.preferences.bioFocus,

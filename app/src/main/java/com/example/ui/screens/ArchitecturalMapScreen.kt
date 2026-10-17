@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,11 +45,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.example.i18n.StringsCatalog
 import com.example.i18n.zoneDescription
 import com.example.i18n.zoneDomain
 import com.example.i18n.zoneTitle
 import com.example.ui.components.drawMentalSpaces
 import com.example.ui.components.rememberSpacesPalette
+import com.example.viewmodel.DiagnosedZoneState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -207,7 +210,8 @@ fun ArchitecturalMapScreen(
                         alpha = 1f,
                         phase = archPhaseState.value,
                         scale = 1f,
-                        strings = strings
+                        strings = strings,
+                        showConnections = true
                     )
                 }
 
@@ -382,6 +386,34 @@ fun ArchitecturalMapScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
+        // Detailed infographic of EVERY mental space (Tab 2 exclusive):
+        // predominant spheres, intensity meters and the practical meaning of
+        // that state. Tab 1 keeps only the brief orientation map.
+        Text(
+            text = strings.fieldSpacesTitle,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = strings.fieldSpacesHelper,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        uiState.diagnosedZones.forEach { dz ->
+            ZoneDetailInfographic(
+                dz = dz,
+                strings = strings,
+                isSelected = dz.zone.zoneId == selectedDiagnosed?.zone?.zoneId,
+                onSelect = { onSelectZone(dz.zone.zoneId) }
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         OutlinedButton(
             onClick = onStartNewSession,
             modifier = Modifier
@@ -398,6 +430,156 @@ fun ArchitecturalMapScreen(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(text = strings.newSessionButton, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/**
+ * Detailed reading card of one mental space, used by the Tab 2 infographic:
+ * explanation of the room, its predominant spheres, the two intensity meters
+ * and the practical meaning of the spheres in that state.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ZoneDetailInfographic(
+    dz: DiagnosedZoneState,
+    strings: StringsCatalog,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .testTag("zone_detail_${dz.zone.zoneId}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            if (isSelected) 1.6.dp else 1.dp,
+            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = strings.zoneTitle(dz.zone.zoneId, dz.zone.customTitle),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = strings.zoneDomain(dz.zone.zoneId, dz.zone.conceptDomain),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = strings.zoneDescription(dz.zone.zoneId, dz.zone.architecturalDescription),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Predominant spheres of this room
+            if (dz.influencingConcepts.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    dz.influencingConcepts.forEach { concept ->
+                        AssistChip(
+                            onClick = onSelect,
+                            label = {
+                                Text(
+                                    text = "${strings.uiInfluencingSphere}: $concept",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Intensity meter 1: openness / clarity
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = strings.archHorizonDepth,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${(dz.diagnosedClarity * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            LinearProgressIndicator(
+                progress = { dz.diagnosedClarity },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = MaterialTheme.colorScheme.secondary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Intensity meter 2: accumulated pressure / rigidity
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = strings.archStructuralTension,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${(dz.diagnosedPressure * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            LinearProgressIndicator(
+                progress = { dz.diagnosedPressure },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+
+            // Practical meaning of the spheres in this state
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.40f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    Text(
+                        text = strings.archEmpiricalInterpretationTitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FormattedMarkdownText(
+                        markdown = dz.empiricalInterpretation,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
     }
 }

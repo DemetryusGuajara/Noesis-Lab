@@ -36,7 +36,33 @@ data class SpatialTopologyAnalysis(
     val furthestPolarityPair: Pair<SphereSpatialDescriptor, SphereSpatialDescriptor>?,
     val furthestDistance: Float,
     val heavySpheres: List<SphereSpatialDescriptor>,
-    val lightSpheres: List<SphereSpatialDescriptor>
+    val lightSpheres: List<SphereSpatialDescriptor>,
+    // NEW: where each sphere sits relative to the mental spaces (zones).
+    val sphereZoneRelations: List<SphereZoneRelation> = emptyList()
+)
+
+/** One mental space as it exists on the canvas (used for zone-relative reading). */
+data class ZoneSpatialDescriptor(
+    val zoneId: String,
+    val title: String,
+    val mapX: Float,
+    val mapY: Float
+)
+
+/**
+ * How a sphere relates to the spaces of the mind:
+ * INSIDE  -> placed inside a room (the state owns it)
+ * NEAR    -> just beside a room, leaning toward it
+ * BETWEEN -> between two (or more) rooms, closer to one of them
+ * OUTSIDE -> far from every room, in the open field
+ */
+data class SphereZoneRelation(
+    val sphereName: String,
+    val primaryZone: String,
+    val primaryDistance: Float,
+    val secondaryZone: String? = null,
+    val secondaryDistance: Float = 0f,
+    val relation: String = "OUTSIDE"
 )
 
 data class GroundingSource(
@@ -96,7 +122,10 @@ class GroundingAndAiService(private val context: Context) {
      * - Polarity Pair (furthest spheres = tension, avoidance, protective boundary)
      * - Dominant Anchor (highest importance & centrality)
      */
-    fun analyzeSpatialTopology(spheres: List<SphereSpatialDescriptor>): SpatialTopologyAnalysis {
+    fun analyzeSpatialTopology(
+        spheres: List<SphereSpatialDescriptor>,
+        zones: List<ZoneSpatialDescriptor> = emptyList()
+    ): SpatialTopologyAnalysis {
         if (spheres.isEmpty()) {
             return SpatialTopologyAnalysis(null, null, 0f, null, 0f, emptyList(), emptyList())
         }
@@ -132,6 +161,36 @@ class GroundingAndAiService(private val context: Context) {
         val heavy = spheres.filter { it.weightHeaviness >= 0.52f }
         val light = spheres.filter { it.weightHeaviness < 0.52f }
 
+        // Zone-relative geometry: which mental space each sphere inhabits or
+        // leans toward. A sphere between two rooms is read as a transition
+        // state leaning to the closer one.
+        val relations = if (zones.isNotEmpty()) {
+            spheres.map { sphere ->
+                val ranked = zones
+                    .map { z -> z to hypot(sphere.posX - z.mapX, sphere.posY - z.mapY) }
+                    .sortedBy { it.second }
+                val first = ranked.getOrNull(0)
+                val second = ranked.getOrNull(1)
+                if (first == null) return@map SphereZoneRelation(sphere.name, "", 0f)
+                val d1 = first.second
+                val d2 = second?.second ?: Float.MAX_VALUE
+                val relation = when {
+                    d1 < 0.11f -> "INSIDE"
+                    d1 < 0.23f -> "NEAR"
+                    d2 < 0.45f && (d2 - d1) < 0.09f -> "BETWEEN"
+                    else -> "OUTSIDE"
+                }
+                SphereZoneRelation(
+                    sphereName = sphere.name,
+                    primaryZone = first.first.title,
+                    primaryDistance = d1,
+                    secondaryZone = second?.first?.title,
+                    secondaryDistance = if (d2 == Float.MAX_VALUE) 0f else d2,
+                    relation = relation
+                )
+            }
+        } else emptyList()
+
         return SpatialTopologyAnalysis(
             dominantSphere = dominant,
             closestAffinityPair = closestPair,
@@ -139,7 +198,8 @@ class GroundingAndAiService(private val context: Context) {
             furthestPolarityPair = furthestPair,
             furthestDistance = if (maxD < 0f) 0f else maxD,
             heavySpheres = heavy,
-            lightSpheres = light
+            lightSpheres = light,
+            sphereZoneRelations = relations
         )
     }
 
@@ -592,6 +652,7 @@ class GroundingAndAiService(private val context: Context) {
         - O corpo habita espaço e tempo: a posição das esferas mostra como o usuário está morando o momento.
         - Ligar pontos distantes revela saídas criativas onde se via só bloqueio.
         - O cérebro antecipa cenários; distância entre esferas = fronteira de proteção, proximidade = aliança.
+        - POSIÇÃO VALE TANTO QUANTO PESO: cada esfera está DENTRO de um espaço da mente, AO LADO de um, ENTRE dois estados (mais próxima de um deles) ou no campo aberto. Ler onde a esfera mora é obrigatório: uma coragem posta no espaço do desejo não significa o mesmo que uma coragem entre o medo e a identidade. Sempre conecte nome + peso + espaço onde está ancorada.
 
         SLIDERS (module tom e conteúdo): Ritmo Interno=${(arousal * 100).toInt()}%: alto → frases curtas e práticas de descarga; baixo → cadência lenta e sustentação. Abertura Afetiva=${(valence * 100).toInt()}%: alta → ouse e convide; baixa → acolha em passos pequenos. Foco=${(focus * 100).toInt()}%: alto → aprofunde um fio; baixo → panorama leve. Esferas pesadas pedem respeito ao ritmo; leves pedem leveza.
         CADA LEITURA DEVE SER INÉDITA: varie título, metáfora central e ritmo das frases; nunca repita fórmulas de leituras anteriores.
@@ -603,7 +664,7 @@ class GroundingAndAiService(private val context: Context) {
         Base conceitual (pode conter vários idiomas — inglês, francês, alemão etc.: leia tudo, mas responda sempre no idioma do app):
         $cleanKnowledgeSummary
 
-        ESTRUTURA (Markdown): título `#` poético e inédito; `### 1.` geometria do momento citando nominalmente os pares; `### 2.` insight que desmonte o falso dilema do relato; `### 3.` um tópico por esfera (cor, peso, sentido), variando a frase a cada esfera; `---SOMATIC---` + exercício corporal INÉDITO de 3 passos (uma técnica validada + uma metáfora das esferas; proibido repetir sempre o mesmo trio).
+        ESTRUTURA (Markdown): título `#` poético e inédito; `### 1.` geometria do momento citando nominalmente os pares E onde cada esfera está ancorada (dentro de qual espaço, ao lado de qual, entre quais estados e para qual lado pende); `### 2.` insight que desmonte o falso dilema do relato, levando em conta o espaço em que as forças habitam; `### 3.` um tópico por esfera (cor, peso, espaço onde mora, sentido), variando a frase a cada esfera; `---SOMATIC---` + exercício corporal INÉDITO de 3 passos (uma técnica validada + uma metáfora das esferas; proibido repetir sempre o mesmo trio).
     """.trimIndent()
 
     /**
@@ -617,6 +678,7 @@ class GroundingAndAiService(private val context: Context) {
         particlesSummary: String,
         conceptNames: List<String>,
         spatialSpheres: List<SphereSpatialDescriptor> = emptyList(),
+        zones: List<ZoneSpatialDescriptor> = emptyList(),
         arousal: Float,
         valence: Float,
         focus: Float,
@@ -629,7 +691,7 @@ class GroundingAndAiService(private val context: Context) {
         onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
-        val topology = analyzeSpatialTopology(spatialSpheres)
+        val topology = analyzeSpatialTopology(spatialSpheres, zones)
 
         onStageProgress(
             when (languageCode.lowercase()) {
@@ -656,9 +718,17 @@ class GroundingAndAiService(private val context: Context) {
         )
 
         val topologySummary = buildTopologyDescriptionString(topology)
-        val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
-            "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
-        }
+        val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
+        val cleanKnowledgeSummary = buildString {
+            if (tier2Knowledge.isNotBlank()) {
+                appendLine("BIBLIOTECA INTERNA (Tier 2):")
+                appendLine(tier2Knowledge)
+                appendLine()
+            }
+            append(grounding.wikiSources.joinToString("\n") {
+                "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
+            })
+        }.trim()
 
         val seed = System.currentTimeMillis()
         val promptRng = Random(seed)
@@ -786,6 +856,7 @@ class GroundingAndAiService(private val context: Context) {
         particlesSummary: String,
         conceptNames: List<String>,
         spatialSpheres: List<SphereSpatialDescriptor> = emptyList(),
+        zones: List<ZoneSpatialDescriptor> = emptyList(),
         arousal: Float,
         valence: Float,
         focus: Float,
@@ -798,7 +869,7 @@ class GroundingAndAiService(private val context: Context) {
         onStageProgress: (String) -> Unit = {}
     ): OrchestratedSimulationResult = withContext(Dispatchers.IO) {
         val titleCasedConcepts = conceptNames.map { formatConceptTitleCase(it) }
-        val topology = analyzeSpatialTopology(spatialSpheres)
+        val topology = analyzeSpatialTopology(spatialSpheres, zones)
         val seed = System.currentTimeMillis()
 
         onStageProgress(
@@ -816,9 +887,17 @@ class GroundingAndAiService(private val context: Context) {
         )
 
         val topologySummary = buildTopologyDescriptionString(topology)
-        val cleanKnowledgeSummary = grounding.wikiSources.joinToString("\n") {
-            "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
-        }
+        val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
+        val cleanKnowledgeSummary = buildString {
+            if (tier2Knowledge.isNotBlank()) {
+                appendLine("BIBLIOTECA INTERNA (Tier 2):")
+                appendLine(tier2Knowledge)
+                appendLine()
+            }
+            append(grounding.wikiSources.joinToString("\n") {
+                "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
+            })
+        }.trim()
 
         val threadSystemPrompt = buildMasterPhenomenologicalSystemPrompt(
             languageInstruction = languageInstruction,
@@ -904,6 +983,15 @@ class GroundingAndAiService(private val context: Context) {
             if (a.name != b.name && topology.closestAffinityPair != topology.furthestPolarityPair) {
                 parts.add("Par de maior distância/polaridade: ${a.name} e ${b.name} (distância=${String.format("%.2f", topology.furthestDistance)})")
             }
+        }
+        topology.sphereZoneRelations.forEach { r ->
+            val placement = when (r.relation) {
+                "INSIDE" -> "DENTRO do espaço ${r.primaryZone} — esse estado é o território dela"
+                "NEAR" -> "encostada no espaço ${r.primaryZone}, inclinada para ele sem pertencer inteiramente"
+                "BETWEEN" -> "ENTRE ${r.primaryZone} e ${r.secondaryZone ?: "outro espaço"}, mais próxima de ${r.primaryZone} — estado de transição"
+                else -> "fora dos espaços, no campo aberto, mas mais próxima de ${r.primaryZone}"
+            }
+            parts.add("Posição de ${r.sphereName}: $placement")
         }
         return parts.joinToString(" | ").ifBlank { "Constelação em equilíbrio distribuído" }
     }
@@ -1017,6 +1105,134 @@ class GroundingAndAiService(private val context: Context) {
         "Que este mapa sirva de espelho gentil — não para julgar o território, mas para caminhar nele com mais lucidez."
     )
 
+    // ---------- Tier 2 internal library (assets/tier2) ----------
+    // Drop .md/.txt files (UTF-8) into app/src/main/assets/tier2 to feed the
+    // built-in engine with your own excerpts (Espinosa, Nietzsche, etc.).
+    private data class Tier2Doc(val title: String, val body: String)
+
+    private val tier2Corpus: List<Tier2Doc> by lazy { loadTier2Corpus() }
+
+    private fun loadTier2Corpus(): List<Tier2Doc> = runCatching {
+        val names = context.assets.list("tier2")?.toList() ?: emptyList()
+        names.filter {
+            (it.endsWith(".md", true) || it.endsWith(".txt", true)) &&
+                !it.startsWith("readme", true) &&
+                !it.startsWith("_")
+        }
+            .mapNotNull { name ->
+                runCatching {
+                    val text = context.assets.open("tier2/$name").bufferedReader().use { it.readText() }
+                    val titleLine = text.lineSequence().firstOrNull { it.trimStart().startsWith("#") }
+                        ?.trimStart('#', ' ')
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: name.substringBeforeLast('.')
+                    val body = text.replace(Regex("^#{1,6} .*$", RegexOption.MULTILINE), "")
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                    if (body.length >= 80) Tier2Doc(titleLine, body) else null
+                }.getOrNull()
+            }
+    }.getOrElse { emptyList() }
+
+    /**
+     * Picks the internal-library excerpts most relevant to the active concepts.
+     * Relevance = token overlap between the concepts and each document. Falls
+     * back to the first documents when nothing matches (still useful as style).
+     */
+    private fun tier2ExcerptsFor(concepts: List<String>, maxChars: Int = 900): String {
+        if (tier2Corpus.isEmpty()) return ""
+        val tokens = concepts
+            .flatMap { it.lowercase().split(Regex("[^\\p{L}\\p{N}]+")) }
+            .filter { it.length >= 4 }
+            .distinct()
+        val ranked = tier2Corpus.map { doc ->
+            val haystack = "${doc.title} ${doc.body}".lowercase()
+            val score = tokens.count { haystack.contains(it) }
+            doc to score
+        }.sortedByDescending { it.second }
+
+        val picked = ranked.filter { it.second > 0 }.map { it.first }.ifEmpty { ranked.map { it.first } }
+            .take(2)
+        if (picked.isEmpty()) return ""
+        var budget = maxChars
+        val sb = StringBuilder()
+        for (doc in picked) {
+            if (budget <= 120) break
+            val chunk = doc.body.take(budget.coerceAtMost(480))
+            sb.append("- ${doc.title}: $chunk")
+            if (doc !== picked.last()) sb.append('\n')
+            budget -= chunk.length
+        }
+        return sb.toString()
+    }
+
+    /** Localized paragraph reading where each sphere lives among the spaces. */
+    private fun buildZoneParagraph(topology: SpatialTopologyAnalysis, lang: String): String {
+        val rels = topology.sphereZoneRelations
+        if (rels.isEmpty()) return ""
+        val inside = rels.filter { it.relation == "INSIDE" }
+        val near = rels.filter { it.relation == "NEAR" }
+        val between = rels.filter { it.relation == "BETWEEN" }
+        val outside = rels.filter { it.relation == "OUTSIDE" }
+        val sb = StringBuilder()
+        if (inside.isNotEmpty()) {
+            val names = inside.joinToString(", ") { "**${it.sphereName}**" }
+            val rooms = inside.joinToString(", ") { it.primaryZone }
+            sb.append(
+                L(
+                    lang,
+                    "$names não está solta no campo: mora dentro do espaço **$rooms**. Isso muda tudo — não é um afeto que passa, é o material com que esse estado se constrói hoje.",
+                    "$names is not loose in the field: it lives inside **$rooms**. That changes everything — it is not a passing feeling, it is the material this state is built from today.",
+                    "$names no está suelto en el campo: vive dentro de **$rooms**. Eso lo cambia todo: no es un afecto pasajero, es el material con el que ese estado se construye hoy.",
+                    "$names n'est pas libre dans le champ : il habite **$rooms**. Cela change tout — ce n'est pas une émotion passagère, c'est la matière dont cet état se construit aujourd'hui."
+                )
+            )
+            sb.append(' ')
+        }
+        if (near.isNotEmpty()) {
+            val detail = near.joinToString("; ") { "**${it.sphereName}** ao lado de ${it.primaryZone}" }
+            sb.append(
+                L(
+                    lang,
+                    "$detail: força que ronda o estado sem se entregar inteira a ele — um desejo de pertencimento ainda negociando a entrada.",
+                    "$detail: a force that circles the state without fully surrendering to it — a wish to belong still negotiating its entrance.",
+                    "$detail: una fuerza que ronda el estado sin entregarse del todo — un deseo de pertenencia aún negociando la entrada.",
+                    "$detail : une force qui tourne autour de l'état sans s'y rendre entièrement — un désir d'appartenance qui négocie encore son entrée."
+                )
+            )
+            sb.append(' ')
+        }
+        if (between.isNotEmpty()) {
+            val detail = between.joinToString("; ") {
+                "**${it.sphereName}** entre ${it.primaryZone} e ${it.secondaryZone ?: "outro estado"}, pendendo para ${it.primaryZone}"
+            }
+            sb.append(
+                L(
+                    lang,
+                    "$detail. Aí está a virada: força de passagem, que mistura os dois estados e explica a sensação de estar \"quase\" em algo sem estar inteira.",
+                    "$detail. Here is the turn: a transitional force that blends both states and explains the feeling of being \"almost\" somewhere without fully arriving.",
+                    "$detail. Aquí está el giro: una fuerza de tránsito que mezcla ambos estados y explica la sensación de estar \"casi\" en algo sin estar del todo.",
+                    "$detail. Voilà le tournant : une force de passage qui mêle les deux états et explique la sensation d'être \"presque\" quelque part sans y être tout à fait."
+                )
+            )
+            sb.append(' ')
+        }
+        if (outside.isNotEmpty()) {
+            val names = outside.joinToString(", ") { "**${it.sphereName}**" }
+            sb.append(
+                L(
+                    lang,
+                    "$names fica no campo aberto, fora de todo estado — é o que a mente ainda não sabe onde encaixar, e justamente por isso pede um lugar próprio.",
+                    "$names stays in the open field, outside every state — it is what the mind does not yet know where to place, and precisely for that reason it asks for a place of its own.",
+                    "$names permanece en el campo abierto, fuera de todo estado: es lo que la mente aún no sabe dónde encajar y, justo por eso, pide un lugar propio.",
+                    "$names reste dans le champ ouvert, hors de tout état — c'est ce que l'esprit ne sait pas encore où placer, et c'est précisément pour cela qu'il demande sa propre place."
+                )
+            )
+        }
+        return sb.toString().trim()
+    }
+
     /**
      * Deep Multi-Sphere Spatial & Dialectical Phenomenological Engine:
      * Analyzes ALL spheres on the user's canvas, their exact proximity (affinity) and distance (polarity),
@@ -1102,6 +1318,11 @@ class GroundingAndAiService(private val context: Context) {
                         )
                     )
                 }
+                val zonePara = buildZoneParagraph(topology, lang)
+                if (zonePara.isNotBlank()) {
+                    appendLine()
+                    appendLine(zonePara)
+                }
                 appendLine()
                 appendLine(
                     L(
@@ -1138,8 +1359,23 @@ class GroundingAndAiService(private val context: Context) {
                 }
                 spheresToRead.forEach { sp ->
                     val def = cleanDefinitionsMap[sp.name.lowercase()]
-                    val insight = distillDeepSphereInsight(sp, def, languageCode)
+                    val relation = topology.sphereZoneRelations.find { it.sphereName == sp.name }
+                    val insight = distillDeepSphereInsight(sp, def, languageCode, relation)
                     appendLine("- **${sp.name}:** $insight")
+                }
+                val internalExcerpt = tier2ExcerptsFor(conceptNames, 460)
+                if (internalExcerpt.isNotBlank()) {
+                    appendLine()
+                    appendLine(
+                        L(
+                            lang,
+                            "### Ressonância da Biblioteca Interna",
+                            "### Resonance from the Internal Library",
+                            "### Resonancia de la Biblioteca Interna",
+                            "### Résonance de la Bibliothèque Interne"
+                        )
+                    )
+                    appendLine(internalExcerpt)
                 }
             }.trim()
         }
@@ -1184,6 +1420,12 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine("Por outro lado, repare na distância que você deixou entre **${p1.name}** e **${p2.name}**. Quando mantemos duas esferas afastadas nas bordas do campo, nossa psique cria uma *fronteira de proteção*: é o modo inteligente que a sua mente encontrou para preservar **${p1.name}** sem que a pressão de **${p2.name}** invada ou desorganize tudo de uma vez.")
             }
 
+            val zoneParagraphPt = buildZoneParagraph(topology, "pt")
+            if (zoneParagraphPt.isNotBlank()) {
+                appendLine()
+                appendLine(zoneParagraphPt)
+            }
+
             appendLine()
 
             // Section 2: Central Philosophical & Psychological Insight addressing User Context
@@ -1217,7 +1459,8 @@ class GroundingAndAiService(private val context: Context) {
 
             spheresToRead.forEach { sp ->
                 val rawDef = cleanDefinitionsMap[sp.name.lowercase()]
-                val sphereInsight = distillDeepSphereInsight(sp, rawDef, "pt")
+                val relation = topology.sphereZoneRelations.find { it.sphereName == sp.name }
+                val sphereInsight = distillDeepSphereInsight(sp, rawDef, "pt", relation)
                 appendLine("- **${sp.name}:** $sphereInsight")
             }
 
@@ -1229,6 +1472,13 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine("Com seu ritmo interno em **${(arousal * 100).toInt()}%**, abertura emocional em **${(valence * 100).toInt()}%** e foco em **${(focus * 100).toInt()}%**, a literatura contemporânea (em diálogo com estudos como *\"$acadTitle\"*) aponta que a percepção muda no instante em que deixamos de ser reféns de um estado e passamos a ser seus observadores criativos. O simples gesto de mapear essas esferas já reorganiza a forma como o seu sistema nervoso processa este momento.")
             }
 
+            val internalExcerptPt = tier2ExcerptsFor(conceptNames, 520)
+            if (internalExcerptPt.isNotBlank()) {
+                appendLine()
+                appendLine("### Ressonância da Biblioteca Interna")
+                appendLine(internalExcerptPt)
+            }
+
             appendLine()
             appendLine(closingLinesPt[rng.nextInt(closingLinesPt.size)])
         }.trim()
@@ -1237,7 +1487,8 @@ class GroundingAndAiService(private val context: Context) {
     private fun distillDeepSphereInsight(
         sphere: SphereSpatialDescriptor,
         cleanExtract: String?,
-        lang: String
+        lang: String,
+        zoneRelation: SphereZoneRelation? = null
     ): String {
         val lower = sphere.name.lowercase()
         val v = (sphere.name.hashCode() and Int.MAX_VALUE) % 2
@@ -1254,24 +1505,57 @@ class GroundingAndAiService(private val context: Context) {
             else -> "Flutuando com suavidade e leveza (${(sphere.weightHeaviness * 100).toInt()}% de peso), oferece respiro e espaço livre ao redor das outras ideias."
         }
 
+        val placeSuffix = zoneRelation?.let { r ->
+            when (r.relation) {
+                "INSIDE" -> L(
+                    lang,
+                    " Ela mora DENTRO do espaço ${r.primaryZone} — ali ela é estrutura, não visita.",
+                    " It lives inside **${r.primaryZone}** — there it is structure, not a visitor.",
+                    " Vive DENTRO de **${r.primaryZone}**: allí es estructura, no visita.",
+                    " Il habite **${r.primaryZone}** : là, il est structure, pas visiteur."
+                )
+                "NEAR" -> L(
+                    lang,
+                    " Está encostada no espaço ${r.primaryZone}, pedindo entrada nele.",
+                    " It leans against **${r.primaryZone}**, asking to enter it.",
+                    " Está junto a **${r.primaryZone}**, pidiendo entrar en él.",
+                    " Il touche **${r.primaryZone}**, demandant à y entrer."
+                )
+                "BETWEEN" -> L(
+                    lang,
+                    " Fica ENTRE ${r.primaryZone} e ${r.secondaryZone ?: "outro estado"}, pendendo para ${r.primaryZone} — zona de transição.",
+                    " It sits BETWEEN **${r.primaryZone}** and **${r.secondaryZone ?: "another state"}**, leaning toward **${r.primaryZone}** — a transition zone.",
+                    " Queda ENTRE **${r.primaryZone}** y **${r.secondaryZone ?: "otro estado"}**, inclinándose hacia **${r.primaryZone}** — zona de transición.",
+                    " Il se tient ENTRE **${r.primaryZone}** et **${r.secondaryZone ?: "un autre état"}**, penchant vers **${r.primaryZone}** — zone de transition."
+                )
+                else -> L(
+                    lang,
+                    " Está no campo aberto, fora dos estados, mais perto de ${r.primaryZone}.",
+                    " It rests in the open field, outside the states, closest to **${r.primaryZone}**.",
+                    " Está en el campo abierto, fuera de los estados, más cerca de **${r.primaryZone}**.",
+                    " Il reste dans le champ ouvert, hors des états, au plus près de **${r.primaryZone}**."
+                )
+            }
+        } ?: ""
+
         if (lang != "pt") {
             val snippet = cleanExtract?.split(Regex("[.!?]"))?.firstOrNull { it.trim().length in 35..200 }?.trim()
             val weightPct = (sphere.weightHeaviness * 100).toInt()
             return if (!snippet.isNullOrBlank()) {
                 L(
                     lang,
-                    "$snippet. Na sua constelação de hoje (peso $weightPct%), ela dá o tom do seu espaço interno.",
-                    "$snippet. In your constellation today (Weight $weightPct%), it shapes the tone of your inner space.",
-                    "$snippet. En tu constelación de hoy (peso $weightPct%), define el tono de tu espacio interior.",
-                    "$snippet. Dans votre constellation d'aujourd'hui (poids $weightPct%), elle donne le ton de votre espace intérieur."
+                    "$snippet. Na sua constelação de hoje (peso $weightPct%), ela dá o tom do seu espaço interno.$placeSuffix",
+                    "$snippet. In your constellation today (Weight $weightPct%), it shapes the tone of your inner space.$placeSuffix",
+                    "$snippet. En tu constelación de hoy (peso $weightPct%), define el tono de tu espacio interior.$placeSuffix",
+                    "$snippet. Dans votre constellation d'aujourd'hui (poids $weightPct%), elle donne le ton de votre espace intérieur.$placeSuffix"
                 )
             } else {
                 L(
                     lang,
-                    "Funciona como uma lente vital na sua constelação mental (peso $weightPct%), equilibrando impulso e reflexão.",
-                    "Acts as a vital lens in your mental constellation (Weight $weightPct%), balancing impulse and reflection.",
-                    "Actúa como una lente vital en tu constelación mental (peso $weightPct%), equilibrando impulso y reflexión.",
-                    "Elle agit comme une lentille vitale dans votre constellation mentale (poids $weightPct%), équilibrant l'élan et la réflexion."
+                    "Funciona como uma lente vital na sua constelação mental (peso $weightPct%), equilibrando impulso e reflexão.$placeSuffix",
+                    "Acts as a vital lens in your mental constellation (Weight $weightPct%), balancing impulse and reflection.$placeSuffix",
+                    "Actúa como una lente vital en tu constelación mental (peso $weightPct%), equilibrando impulso y reflexión.$placeSuffix",
+                    "Elle agit comme une lentille vitale dans votre constellation mentale (poids $weightPct%), équilibrant l'élan et la réflexion.$placeSuffix"
                 )
             }
         }
@@ -1349,7 +1633,16 @@ class GroundingAndAiService(private val context: Context) {
             }
         }
 
-        return "$coreMeaning $weightQualifierPt"
+        val placeSuffixPt = zoneRelation?.let { r ->
+            when (r.relation) {
+                "INSIDE" -> " Ela mora **dentro do espaço ${r.primaryZone}** — ali é estrutura, não visita."
+                "NEAR" -> " Está **encostada no espaço ${r.primaryZone}**, pedindo entrada nele."
+                "BETWEEN" -> " Fica **entre ${r.primaryZone} e ${r.secondaryZone ?: "outro estado"}**, pendendo para ${r.primaryZone} — zona de transição."
+                else -> " Está no **campo aberto**, fora dos estados, mais perto de ${r.primaryZone}."
+            }
+        } ?: ""
+
+        return "$coreMeaning $weightQualifierPt$placeSuffixPt"
     }
 
     private fun analyzeDeepDialecticalDilemma(
