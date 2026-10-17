@@ -79,8 +79,12 @@ jobs:
 
       - name: Upload APKs as Workflow Artifacts
         uses: actions/upload-artifact@v4
+        # Non-blocking: o APK/AAB já vai para os assets da Release abaixo;
+        # se a cota de artefatos estourar, a run continua verde mesmo assim.
+        continue-on-error: true
         with:
           name: NoesisLab-APKs
+          retention-days: 7
           path: |
             NoesisLab-v1.0.${{ github.run_number }}.apk
             NoesisLab-v1.0.${{ github.run_number }}-release.aab
