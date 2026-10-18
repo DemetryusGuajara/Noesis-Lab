@@ -402,11 +402,11 @@ fun ArchitecturalMapScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        uiState.diagnosedZones.forEach { dz ->
+        selectedDiagnosed?.let { dz ->
             ZoneDetailInfographic(
                 dz = dz,
                 strings = strings,
-                isSelected = dz.zone.zoneId == selectedDiagnosed?.zone?.zoneId,
+                isSelected = true,
                 onSelect = { onSelectZone(dz.zone.zoneId) }
             )
             Spacer(modifier = Modifier.height(10.dp))

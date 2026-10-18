@@ -6,4 +6,5 @@
     <string name="nav_oracle">Simulation</string>
     <string name="nav_providers">Fournisseurs IA</string>
     <string name="hero_banner_desc">Illustration de topologie et variété perceptive</string>
+    <string name="uiRegenerate">Regenerar</string>
 </resources>

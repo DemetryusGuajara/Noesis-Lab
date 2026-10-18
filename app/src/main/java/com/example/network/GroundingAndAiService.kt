@@ -718,6 +718,12 @@ class GroundingAndAiService(private val context: Context) {
             userPrompt = userPrompt,
             languageCode = languageCode
         )
+        // --- ANTI-REPRODUÇÃO: fontes externas NUNCA saem do dispositivo ---
+        val sanitizedGrounding = GroundingBundle(
+            wikiSources = emptyList(),
+            academicSources = emptyList()
+        )
+        val effectiveGrounding = sanitizedGrounding
 
         val topologySummary = buildTopologyDescriptionString(topology)
         val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
@@ -727,9 +733,7 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine(tier2Knowledge)
                 appendLine()
             }
-            append(grounding.wikiSources.joinToString("\n") {
-                "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
-            })
+            // NUNCA incluímos wikiSources no output - elas ficam internalizadas
         }.trim()
 
         val seed = System.currentTimeMillis()
@@ -796,8 +800,12 @@ class GroundingAndAiService(private val context: Context) {
                     )
                 }
                 AppLog.i("sim", "tier=BYOK ok label='${activeProviderName ?: "BYOK"}'")
-                return@withContext OrchestratedSimulationResult(
-                    narrativeMarkdown = mainNarrative,
+                val providerInfo = when (providerLabel) {
+            "${activeProviderName ?: "BYOK"} · $activeModelId" -> "\n\n---\n*Texto gerado pelo modelo ${activeProviderName ?: "BYOK"} pelo provedor $activeModelId*"
+            else -> ""
+        }
+        return@withContext OrchestratedSimulationResult(
+                    narrativeMarkdown = mainNarrative + providerInfo,
                     somaticShiftSuggestion = somatic,
                     providerLabel = "${activeProviderName ?: "BYOK"} · $activeModelId",
                     grounding = grounding
@@ -841,10 +849,15 @@ class GroundingAndAiService(private val context: Context) {
 
         AppLog.i("sim", "tier=internal-fallback wiki=${grounding.wikiSources.size} acad=${grounding.academicSources.size}")
         OrchestratedSimulationResult(
-            narrativeMarkdown = synthesized,
+            val generatorInfoInternal = when (providerLabel) {
+            "Motor Interno" -> "\n\n---\n*Texto gerado pelo Motor Interno*"
+            else -> ""
+        }
+        OrchestratedSimulationResult(
+            narrativeMarkdown = synthesized + generatorInfoInternal,
             somaticShiftSuggestion = somatic,
             providerLabel = "Motor Interno",
-            grounding = grounding
+            grounding = effectiveGrounding
         )
     }
 
@@ -887,6 +900,12 @@ class GroundingAndAiService(private val context: Context) {
             userPrompt = newUserText,
             languageCode = languageCode
         )
+        // --- ANTI-REPRODUÇÃO: fontes externas NUNCA saem do dispositivo ---
+        val sanitizedGrounding = GroundingBundle(
+            wikiSources = emptyList(),
+            academicSources = emptyList()
+        )
+        val effectiveGrounding = sanitizedGrounding
 
         val topologySummary = buildTopologyDescriptionString(topology)
         val tier2Knowledge = tier2ExcerptsFor(titleCasedConcepts)
@@ -896,9 +915,7 @@ class GroundingAndAiService(private val context: Context) {
                 appendLine(tier2Knowledge)
                 appendLine()
             }
-            append(grounding.wikiSources.joinToString("\n") {
-                "- ${it.conceptTerm}: ${it.cleanExtract.take(380)}"
-            })
+            // NUNCA incluímos wikiSources no output - elas ficam internalizadas
         }.trim()
 
         val threadSystemPrompt = buildMasterPhenomenologicalSystemPrompt(
@@ -966,10 +983,15 @@ class GroundingAndAiService(private val context: Context) {
             seed = seed + 7
         )
         OrchestratedSimulationResult(
-            narrativeMarkdown = synthesized,
+            val generatorInfoInternal = when (providerLabel) {
+            "Motor Interno" -> "\n\n---\n*Texto gerado pelo Motor Interno*"
+            else -> ""
+        }
+        OrchestratedSimulationResult(
+            narrativeMarkdown = synthesized + generatorInfoInternal,
             somaticShiftSuggestion = somatic,
             providerLabel = "Motor Interno",
-            grounding = grounding
+            grounding = effectiveGrounding
         )
     }
 

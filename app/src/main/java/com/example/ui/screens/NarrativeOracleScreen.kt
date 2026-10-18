@@ -398,6 +398,37 @@ fun NarrativeOracleScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    // Linha de identificação do gerador
+                    Text(
+                        text = "⚙ " + currentReading.providerUsed,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    // Botão de regenerar
+                    OutlinedButton(
+                        onClick = {
+                            onRunSimulation(currentReading.userPrompt)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("regenerate_button"),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = strings.uiRegenerate,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = strings.uiRegenerate, style = MaterialTheme.typography.labelSmall)
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Surface(
